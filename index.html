@@ -1,0 +1,2296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>FMS Inpatient Scheduler</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.min.js"></script>
+<style>
+  :root {
+    --gold: #d4a017;
+    --gold-bg: #fdf6e3;
+    --bronze: #8b5a2b;
+    --bronze-bg: #f6ece2;
+    --ob: #1f6feb;
+    --ob-bg: #e6eefc;
+    --hard: #c0392b;
+    --soft: #e67e22;
+    --ok: #27ae60;
+    --border: #d9d9d9;
+    --bg: #fafafa;
+    --panel: #ffffff;
+    --muted: #666;
+    --text: #222;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  header {
+    background: #222; color: #fff; padding: 10px 20px;
+    display: flex; align-items: center; gap: 18px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: #bbb; font-size: 12px; }
+  header nav { margin-left: auto; display: flex; gap: 4px; }
+  header nav button {
+    background: transparent; color: #ddd; border: 1px solid #444;
+    padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  header nav button.active { background: #fff; color: #222; border-color: #fff; }
+  header nav button:hover:not(.active) { background: #333; color: #fff; }
+  main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+  section.tab { display: none; }
+  section.tab.active { display: block; }
+  h2 { font-size: 18px; margin: 0 0 12px; }
+  h3 { font-size: 15px; margin: 20px 0 8px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 16px; margin-bottom: 16px;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td {
+    border: 1px solid var(--border); padding: 6px 8px; text-align: left;
+    vertical-align: middle;
+  }
+  th { background: #f2f2f2; font-weight: 600; }
+  td input[type=text], td input[type=number], td select {
+    width: 100%; padding: 3px 5px; border: 1px solid #ccc; border-radius: 3px;
+    font-size: 13px; background: #fff;
+  }
+  td input[type=number] { width: 70px; }
+  td.center { text-align: center; }
+  button.btn {
+    background: #1f6feb; color: #fff; border: none; padding: 7px 14px;
+    border-radius: 4px; cursor: pointer; font-size: 13px;
+  }
+  button.btn:hover { background: #1858c4; }
+  button.btn.ghost { background: #fff; color: #1f6feb; border: 1px solid #1f6feb; }
+  button.btn.ghost:hover { background: #e6eefc; }
+  button.btn.danger { background: #c0392b; }
+  button.btn.danger:hover { background: #9e2e22; }
+  button.btn.small { padding: 4px 8px; font-size: 12px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .row > * { flex: 1 1 auto; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+  .toolbar label { font-size: 13px; color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 2px 7px; font-size: 11px; border-radius: 10px;
+    background: #eee; color: #333; margin-right: 4px;
+  }
+  .badge.gold { background: var(--gold-bg); color: #8a6d11; }
+  .badge.bronze { background: var(--bronze-bg); color: var(--bronze); }
+  .badge.ob { background: var(--ob-bg); color: var(--ob); }
+  .badge.hard { background: #fbe2df; color: var(--hard); }
+  .badge.soft { background: #fcead5; color: var(--soft); }
+  .cell-gold { background: var(--gold-bg); }
+  .cell-bronze { background: var(--bronze-bg); }
+  .cell-ob { background: var(--ob-bg); }
+  .cell-violation { outline: 2px solid var(--hard); outline-offset: -2px; }
+  .cell-soft { outline: 2px solid var(--soft); outline-offset: -2px; }
+  .cell-holiday { position: relative; }
+  .cell-holiday::after {
+    content: '★'; color: #c0392b; position: absolute; top: 1px; right: 3px; font-size: 10px;
+  }
+  .assign-select {
+    width: 100%; padding: 2px 4px; border: 1px solid transparent; background: transparent;
+    font-size: 13px; font-weight: 500;
+  }
+  .assign-select:hover { border-color: #bbb; background: #fff; }
+  .help {
+    color: var(--muted); font-size: 12px; margin: 4px 0 8px;
+  }
+  .req-list { list-style: none; padding: 0; margin: 6px 0; }
+  .req-list li {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; background: #f0f0f0; border-radius: 4px;
+    margin: 2px; font-size: 12px;
+  }
+  .req-list li button {
+    background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 0;
+  }
+  .req-list li button:hover { color: var(--hard); }
+  .req-list li.hard { background: #fbe2df; color: var(--hard); }
+  .req-list li.soft { background: #fcead5; color: var(--soft); }
+  .req-list li.prefer { background: #d5f0dc; color: var(--ok); }
+  .flag-pill {
+    display: inline-block; padding: 1px 6px; font-size: 11px;
+    border-radius: 3px; margin: 1px;
+  }
+  .flag-pill.hard { background: var(--hard); color: #fff; }
+  .flag-pill.soft { background: var(--soft); color: #fff; }
+  .conflicts-panel {
+    border: 2px solid var(--hard); background: #fbe2df; color: #5a1a13;
+    border-radius: 4px; padding: 10px 14px; margin: 12px 0;
+  }
+  .conflicts-panel h3 {
+    margin: 0 0 6px 0; font-size: 15px; color: var(--hard);
+  }
+  .conflicts-panel ul { margin: 4px 0 0 18px; padding: 0; }
+  .conflicts-panel li { margin-bottom: 3px; }
+  .conflicts-panel .ok {
+    color: var(--ok); font-weight: 500;
+  }
+  .conflicts-panel.clean {
+    border-color: var(--ok); background: #d5f0dc; color: #1a4a26;
+  }
+  .conflicts-panel.clean h3 { color: var(--ok); }
+  .requests-cell {
+    font-size: 12px; line-height: 1.35; max-width: 260px;
+  }
+  .requests-cell .req-item { display: block; margin-bottom: 2px; }
+  .requests-cell .req-item.hard { color: var(--hard); }
+  .requests-cell .req-item.soft { color: var(--soft); }
+  .requests-cell .req-item.prefer { color: var(--ok); }
+  .legend-row { font-size: 12px; color: #555; margin: 4px 0 0 0; }
+  .legend-row .flag-pill { vertical-align: middle; }
+  .faculty-row.hide { display: none; }
+  .progress-bar {
+    width: 100%; height: 18px; background: #eee; border-radius: 3px; overflow: hidden;
+    position: relative;
+  }
+  .progress-bar .fill {
+    height: 100%; background: var(--ob); transition: width .2s;
+  }
+  .progress-bar .fill.over { background: var(--soft); }
+  .progress-bar .fill.met { background: var(--ok); }
+  .progress-bar .label {
+    position: absolute; inset: 0; text-align: center; line-height: 18px;
+    font-size: 11px; color: #000; font-weight: 500;
+  }
+  .stick { position: sticky; left: 0; background: #f2f2f2; z-index: 1; }
+  .schedule-table th, .schedule-table td { font-size: 12px; }
+  .schedule-table .week-col { min-width: 90px; }
+  .schedule-table .block-col { width: 54px; text-align: center; font-weight: 600; }
+  .holiday-note { color: var(--hard); font-size: 11px; font-weight: 600; }
+  .autosave {
+    font-size: 11px; color: #8f8;
+  }
+  details.rules {
+    background: #fffbea; border: 1px solid #f0d98a; padding: 10px; border-radius: 4px;
+    margin-bottom: 14px;
+  }
+  details.rules summary { cursor: pointer; font-weight: 600; }
+  details.rules ul { margin: 8px 0 0 18px; padding: 0; }
+  .small { font-size: 12px; color: var(--muted); }
+  .pill-group button {
+    background: #fff; border: 1px solid #ccc; padding: 3px 8px; font-size: 12px;
+    border-radius: 3px; cursor: pointer; margin-right: 4px;
+  }
+  .pill-group button.active { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+  input[type=checkbox] { transform: scale(1.1); margin: 0 3px; }
+  /* PTO overview */
+  .pto-fac-block { border: 1px solid var(--border); border-radius: 4px; padding: 10px 12px; margin-bottom: 8px; background: #fff; }
+  .pto-fac-block.empty { background: #fafafa; color: #888; }
+  .pto-fac-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; display: inline-block; min-width: 80px; }
+  .pto-chip { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 11px; margin: 2px; }
+  .pto-chip.hard { background: #fbe2df; color: var(--hard); }
+  .pto-chip.soft { background: #fcead5; color: var(--soft); }
+  .pto-chip.prefer { background: #d5f0dc; color: var(--ok); }
+  .pto-week-box {
+    display: inline-block; padding: 6px 8px; border-radius: 4px; border: 1px solid #e0e0e0;
+    text-align: center; font-size: 11px; min-width: 54px;
+  }
+  .pto-week-box .wlbl { display: block; color: #666; font-size: 10px; }
+  .pto-week-box .wcount { display: block; font-size: 14px; font-weight: 600; }
+  .pto-week-box.lvl-0 { background: #fafafa; }
+  .pto-week-box.lvl-1 { background: #fff4e3; border-color: #f0d98a; }
+  .pto-week-box.lvl-2 { background: #fcead5; border-color: #e67e22; color:#7a4212; }
+  .pto-week-box.lvl-3 { background: #fbe2df; border-color: #c0392b; color:#7a2117; font-weight:600 }
+  /* Cloud */
+  #cloud-schedules-list table { font-size: 13px; }
+  #cloud-schedules-list .ver-row { background: #fafafa; }
+  #cloud-schedules-list .ver-row td { font-size: 12px; color:#555; }
+  .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+  @media print {
+    header nav, .toolbar, button, #auth-bar { display: none !important; }
+    main { max-width: 100%; padding: 0; }
+    section.tab { display: block !important; page-break-after: always; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>FMS Inpatient Scheduler</h1>
+  <span class="sub">6-month scheduling tool · Gold · Bronze · OB</span>
+  <nav>
+    <button data-tab="faculty" class="active">Faculty</button>
+    <button data-tab="requests">Requests</button>
+    <button data-tab="pto">PTO Overview</button>
+    <button data-tab="schedule">Schedule</button>
+    <button data-tab="progress">Progress</button>
+    <button data-tab="data">Data &amp; Cloud</button>
+  </nav>
+</header>
+
+<!-- Password gate: covers the whole page until correct password is entered -->
+<div id="password-gate" style="display:none; position:fixed; inset:0; background:#222; z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:#fff; padding:28px 32px; border-radius:8px; max-width:380px; width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.4);">
+    <h3 style="margin:0 0 6px">FMS Inpatient Scheduler</h3>
+    <p class="small" style="margin:0 0 16px; color:#555">Enter the app password to continue.</p>
+    <input type="password" id="pw-input" placeholder="Password" autofocus style="width:100%; padding:9px 11px; border:1px solid #ccc; border-radius:4px; font-size:14px; margin-bottom:8px">
+    <div id="pw-msg" class="small" style="min-height:18px; margin-bottom:8px; color:var(--hard)"></div>
+    <button class="btn" id="btn-pw-go" style="width:100%">Unlock</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" style="display:none; position:fixed; bottom:20px; right:20px; background:#222; color:#fff; padding:10px 14px; border-radius:4px; font-size:13px; z-index:200; max-width:340px; box-shadow:0 4px 16px rgba(0,0,0,0.25);"></div>
+
+<main>
+
+<!-- ================== FACULTY TAB ================== -->
+<section id="tab-faculty" class="tab active">
+  <h2>Faculty roster &amp; goals</h2>
+  <p class="help">Add or edit faculty here. Check which services each person does, set their goals for this 6-month period, and choose their weekend-combination rule.</p>
+  <details class="rules">
+    <summary>Weekend-combo rules — what each option means</summary>
+    <ul>
+      <li><b>Solo only</b> — this person covers only one service on a weekend. This is the default.</li>
+      <li><b>Gold + OB ok</b> — can cover both Gold and OB on the same weekend (e.g., AMP, SNG).</li>
+    </ul>
+    <p class="small" style="margin-top:6px">Hard global rule: OB and Bronze are never scheduled together on the same weekend. All other combinations are considered violations unless explicitly allowed above.</p>
+  </details>
+  <div class="toolbar">
+    <button class="btn" id="btn-add-faculty">+ Add faculty</button>
+    <label style="margin-left:auto"><input type="text" id="faculty-search" placeholder="Search…" style="padding:5px 8px; border:1px solid #ccc; border-radius:3px"></label>
+  </div>
+  <div style="overflow-x:auto">
+  <table id="faculty-table">
+    <thead>
+      <tr>
+        <th>Initials</th>
+        <th>Full name (optional)</th>
+        <th class="center">Gold</th>
+        <th class="center">Bronze</th>
+        <th class="center">OB</th>
+        <th>Gold goal</th>
+        <th>OB week</th>
+        <th>OB wknd</th>
+        <th>Bronze week</th>
+        <th>Bronze wknd</th>
+        <th>Weekend combo</th>
+        <th title="Operative-OB preferred: these faculty absorb extra OB weeks when total OB demand exceeds sum of goals">Op OB pref</th>
+        <th>Notes</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  </div>
+  <p class="small">Goals are the target number of weeks/weekends for this 6-month period. Decimals ok (e.g., 2.9). Leave blank or 0 for services they don't do.</p>
+</section>
+
+<!-- ================== REQUESTS TAB ================== -->
+<section id="tab-requests" class="tab">
+  <h2>Faculty requests</h2>
+  <p class="help">Pick a faculty member, then add their PTO and preference requests. Hard blocks cannot be violated. Soft avoids are preferences with a priority (1 = mildly prefer to avoid, 3 = strongly prefer to avoid).</p>
+  <div class="toolbar">
+    <label>Faculty: <select id="req-faculty-select"></select></label>
+  </div>
+  <div class="panel" id="req-panel">
+    <p class="small">Pick a faculty member to see their requests.</p>
+  </div>
+</section>
+
+<!-- ================== PTO OVERVIEW TAB ================== -->
+<section id="tab-pto" class="tab">
+  <h2>PTO &amp; request overview</h2>
+  <p class="help">Everyone's requests at a glance. Use this to sanity-check that nothing was missed before you build the schedule, and to spot weeks where lots of faculty are off.</p>
+  <div class="toolbar">
+    <button class="btn ghost" id="btn-pto-print">Print this page</button>
+    <button class="btn ghost" id="btn-pto-export-csv">Export as CSV</button>
+    <span class="legend-row" style="margin-left:auto">
+      <span class="badge hard">hard</span> can't be on inpatient ·
+      <span class="badge soft">soft</span> prefer not (P1–P3) ·
+      <span class="badge" style="background:#d5f0dc; color:#1a4a26">want</span> prefer to work
+    </span>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin-top:0">Weeks with the most PTO</h3>
+    <p class="small">Weeks flagged by hard blocks. Use this to spot scheduling pressure points.</p>
+    <div id="pto-heatmap" style="display:flex; flex-wrap:wrap; gap:4px;"></div>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin-top:0">By faculty</h3>
+    <div id="pto-by-faculty"></div>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin-top:0">By week</h3>
+    <p class="small">All requests for each week, side-by-side.</p>
+    <div style="overflow-x:auto">
+      <table id="pto-by-week-table">
+        <thead>
+          <tr>
+            <th>Block</th>
+            <th>Week of</th>
+            <th style="color:var(--hard)">Hard blocks</th>
+            <th style="color:var(--soft)">Soft avoids</th>
+            <th style="color:var(--ok)">Prefer-to-work</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ================== SCHEDULE TAB ================== -->
+<section id="tab-schedule" class="tab">
+  <h2>Schedule — <span id="period-label"></span></h2>
+  <div class="toolbar">
+    <label>Start Monday: <input type="date" id="period-start"></label>
+    <label>Weeks: <input type="number" id="period-weeks" min="4" max="52" style="width:70px"></label>
+    <button class="btn ghost" id="btn-regen-weeks">Regenerate weeks</button>
+    <button class="btn" id="btn-autofill">Auto-fill schedule</button>
+    <button class="btn danger" id="btn-clear-schedule">Clear schedule</button>
+    <span class="small" style="margin-left:auto">★ = includes holiday · red outline = hard violation · orange = soft violation</span>
+  </div>
+  <p class="small">Auto-fill fills empty cells with a greedy best-fit that honors all hard rules (eligibility, hard blocks, back-to-back, OB+Bronze, solo weekends) and scores soft preferences. Hand-edit any cell afterward — violations will flag live. Run it more than once to try different fills; clear first to start over.</p>
+  <div id="forced-conflicts-panel"></div>
+  <div class="legend-row">
+    <b>Flags legend:</b>
+    <span class="flag-pill hard">!</span> hard-rule violation (eligibility, hard-blocked PTO, back-to-back, etc.) ·
+    <span class="flag-pill soft">~</span> soft preference flag (soft-avoid, cadence) ·
+    <span class="flag-pill soft">wknd ★</span> weekend includes a holiday. Hover any pill for details.
+  </div>
+  <details class="rules">
+    <summary>Rules being checked (click to see)</summary>
+    <ul>
+      <li>Faculty can only be assigned to services they're eligible for.</li>
+      <li><b>Gold weekend is always the same person as Gold week</b> (no separate Gold weekend assignment).</li>
+      <li><b>OB and Bronze weekends prefer the same person who's on that service that week</b> — only fall back to someone else if there's a hard-block weekend, weekend combo-rule violation, or the global OB+Bronze weekend exclusion.</li>
+      <li>Hard-block week/weekend requests are violations if assigned.</li>
+      <li>No back-to-back inpatient weeks.</li>
+      <li>Same person cannot do two services in the same week.</li>
+      <li>OB and Bronze cannot be covered by one person on the same weekend.</li>
+      <li>Faculty weekend-combo rule must be honored (e.g., "solo only" can't cover two services on one weekend).</li>
+      <li>Holiday repeats — faculty who worked a major holiday shouldn't get another major holiday in this period.</li>
+      <li>Soft avoids and ~every-6-weeks cadence shown as soft flags, not hard blocks.</li>
+    </ul>
+  </details>
+  <div style="overflow-x:auto">
+    <table class="schedule-table" id="schedule-table">
+      <thead>
+        <tr>
+          <th class="block-col">Block</th>
+          <th class="week-col">Week of</th>
+          <th>Gold (M-F)</th>
+          <th>Bronze (M-F)</th>
+          <th>OB (M-F)</th>
+          <th>Gold wknd</th>
+          <th>Bronze wknd</th>
+          <th>OB wknd</th>
+          <th>Flags</th>
+          <th>Requests this week</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================== PROGRESS TAB ================== -->
+<section id="tab-progress" class="tab">
+  <h2>Goal progress</h2>
+  <p class="help">How many weeks/weekends each faculty has been assigned in the current schedule vs their goal.</p>
+  <div style="overflow-x:auto">
+    <table id="progress-table">
+      <thead>
+        <tr>
+          <th>Faculty</th>
+          <th>Gold</th>
+          <th>OB week</th>
+          <th>OB wknd</th>
+          <th>Bronze week</th>
+          <th>Bronze wknd</th>
+          <th>Total weeks</th>
+          <th>Total wknds</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================== DATA TAB ================== -->
+<section id="tab-data" class="tab">
+  <h2>Save, load &amp; export</h2>
+  <div class="panel">
+    <h3 style="margin-top:0">Autosave</h3>
+    <p class="help">Your work autosaves to your browser every change. The save location is specific to this browser on this computer.</p>
+    <div class="toolbar">
+      <button class="btn ghost" id="btn-reload-local">Reload from autosave</button>
+      <button class="btn danger" id="btn-clear-local">Clear autosave</button>
+      <span class="autosave" id="autosave-indicator"></span>
+    </div>
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">File save / load (recommended for keeping a copy)</h3>
+    <div class="toolbar">
+      <button class="btn" id="btn-save-json">Save to file (.json)</button>
+      <label class="btn ghost" style="cursor:pointer">
+        Load from file (.json)
+        <input type="file" id="file-load" accept=".json,application/json" style="display:none">
+      </label>
+    </div>
+    <p class="small">Save a .json file to keep a permanent snapshot (e.g., named <code>FMS_schedule_Jul-Dec_2026.json</code>). Load it later to pick up where you left off.</p>
+  </div>
+  <div class="panel">
+    <h3 style="margin-top:0">Export schedule</h3>
+    <div class="toolbar">
+      <button class="btn" id="btn-export-csv">Export schedule to CSV</button>
+      <button class="btn ghost" id="btn-export-xlsx">Export schedule to Excel (.xlsx)</button>
+    </div>
+    <p class="small">CSV opens cleanly in Excel. The .xlsx export requires internet the first time to load a small library; after that it works offline.</p>
+  </div>
+  <!-- ============ CLOUD SAVE / LOAD (Supabase) ============ -->
+  <div class="panel" id="cloud-panel">
+    <h3 style="margin-top:0">Cloud — save &amp; load (Supabase)</h3>
+    <div id="cloud-setup-hint" class="small" style="display:none; background:#fff8e1; border:1px solid #f0d98a; padding:10px; border-radius:4px; margin-bottom:10px;">
+      Cloud save/load isn't configured yet. Open <code>SUPABASE_SETUP.md</code> in this folder for a step-by-step guide.
+    </div>
+    <div id="cloud-auth" style="display:none">
+      <div class="toolbar" style="margin-bottom:8px">
+        <span class="small" id="cloud-current-label" style="color:#555"></span>
+        <button class="btn" id="btn-cloud-save-new">Save current as new schedule…</button>
+        <button class="btn ghost" id="btn-cloud-save-version" disabled>Save as new version</button>
+        <button class="btn ghost" id="btn-cloud-refresh" title="Refresh list">↻ Refresh</button>
+      </div>
+      <div id="cloud-schedules-list">
+        <p class="small">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin-top:0">Reset</h3>
+    <div class="toolbar">
+      <button class="btn danger" id="btn-reset-all">Reset everything to default seed</button>
+    </div>
+    <p class="small">This clears all assignments and requests and re-seeds with the default faculty roster. Requests are cleared.</p>
+  </div>
+</section>
+
+</main>
+
+<script>
+/* ========================================================================
+   FMS Inpatient Scheduler
+   Single-file HTML app. Vanilla JS. Autosaves to localStorage.
+   ======================================================================== */
+
+/* ---------- Utilities ---------- */
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const pad = n => String(n).padStart(2, '0');
+const fmtISO = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const parseISO = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+const fmtShort = d => d.toLocaleDateString(undefined, {month:'short', day:'numeric'});
+const fmtLong = d => d.toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'});
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+/* ---------- Seed data ---------- */
+const SEED_FACULTY = [
+  // {initials, services, goals: {gold, obWeek, obWeekend, bronze, bronzeWeekend}, weekendRule, notes}
+  // weekendRule options: 'solo' (default) or 'goldObOk'
+  { initials:'AFM', services:{gold:true,bronze:true,ob:false}, goals:{gold:2.9,obWeek:0,obWeekend:0,bronze:2,bronzeWeekend:2}, weekendRule:'solo', notes:'' },
+  { initials:'AMP', services:{gold:true,bronze:true,ob:true}, goals:{gold:2.9,obWeek:3,obWeekend:4,bronze:2,bronzeWeekend:2}, weekendRule:'goldObOk', notes:'' },
+  { initials:'BSC', services:{gold:false,bronze:true,ob:false}, goals:{gold:0,obWeek:0,obWeekend:0,bronze:3,bronzeWeekend:3}, weekendRule:'solo', notes:'' },
+  { initials:'CDO', services:{gold:true,bronze:true,ob:false}, goals:{gold:2,obWeek:0,obWeekend:0,bronze:1,bronzeWeekend:2}, weekendRule:'solo', notes:'' },
+  { initials:'GJE', services:{gold:false,bronze:true,ob:false}, goals:{gold:0,obWeek:0,obWeekend:0,bronze:13,bronzeWeekend:6}, weekendRule:'solo', notes:'' },
+  { initials:'JDH', services:{gold:true,bronze:true,ob:true}, goals:{gold:2.9,obWeek:1,obWeekend:1,bronze:1,bronzeWeekend:2}, weekendRule:'goldObOk', notes:'' },
+  { initials:'JEM', services:{gold:false,bronze:false,ob:true}, goals:{gold:0,obWeek:3,obWeekend:3,bronze:0,bronzeWeekend:0}, weekendRule:'solo', notes:'' },
+  { initials:'JSL', services:{gold:true,bronze:false,ob:true}, goals:{gold:3,obWeek:3,obWeekend:3,bronze:0,bronzeWeekend:0}, weekendRule:'goldObOk', opOBPref:true, notes:'Operative OB pref' },
+  { initials:'JSM', services:{gold:true,bronze:false,ob:false}, goals:{gold:1,obWeek:0,obWeekend:0,bronze:0,bronzeWeekend:0}, weekendRule:'solo', notes:'' },
+  { initials:'KAR', services:{gold:false,bronze:false,ob:true}, goals:{gold:0,obWeek:3,obWeekend:3,bronze:0,bronzeWeekend:0}, weekendRule:'solo', opOBPref:true, notes:'Operative OB pref' },
+  { initials:'MNO', services:{gold:true,bronze:false,ob:false}, goals:{gold:4,obWeek:0,obWeekend:0,bronze:0,bronzeWeekend:0}, weekendRule:'solo', notes:'' },
+  { initials:'MXM', services:{gold:true,bronze:true,ob:true}, goals:{gold:2.2,obWeek:2,obWeekend:2,bronze:1,bronzeWeekend:1}, weekendRule:'solo', notes:'' },
+  { initials:'Saleem', services:{gold:false,bronze:false,ob:true}, goals:{gold:0,obWeek:6,obWeekend:6,bronze:0,bronzeWeekend:0}, weekendRule:'solo', opOBPref:true, notes:'Operative OB pref' },
+  { initials:'SNG', services:{gold:true,bronze:true,ob:true}, goals:{gold:3,obWeek:2,obWeekend:2,bronze:1,bronzeWeekend:1}, weekendRule:'goldObOk', opOBPref:true, notes:'Operative OB pref' },
+  { initials:'Baskin', services:{gold:false,bronze:true,ob:false}, goals:{gold:0,obWeek:0,obWeekend:0,bronze:1,bronzeWeekend:1}, weekendRule:'solo', notes:'Picks own Bronze weeks' },
+  { initials:'Swanson', services:{gold:false,bronze:true,ob:false}, goals:{gold:0,obWeek:0,obWeekend:0,bronze:1,bronzeWeekend:1}, weekendRule:'solo', notes:'Picks own Bronze weeks' },
+];
+
+const SEED_REQUESTS = {};
+
+const DEFAULT_PERIOD = { startDate: '2026-07-06', weeks: 26 };
+
+// US holidays falling in Jul-Dec 2026 + Jan 1 2027. For "don't repeat holiday" rule.
+// Dates are Saturdays (for weekends) and Mondays (for weeks). We also mark any week
+// that contains a federal/major holiday.
+const HOLIDAYS = {
+  '2026-07-04': 'Independence Day',
+  '2026-09-07': 'Labor Day',
+  '2026-11-11': 'Veterans Day',
+  '2026-11-26': 'Thanksgiving',
+  '2026-12-25': 'Christmas',
+  '2027-01-01': 'New Year\'s Day',
+};
+
+/* ---------- State ---------- */
+let state = {
+  version: 1,
+  period: {...DEFAULT_PERIOD},
+  faculty: [],
+  requests: {},   // keyed by initials -> {hardBlockWeeks, hardBlockWeekends, softAvoidWeeks, preferWeeks}
+  schedule: {},   // keyed by week start ISO -> {week:{gold,bronze,ob}, weekend:{gold,bronze,ob}}
+};
+
+const LS_KEY = 'fms-scheduler-state-v1';
+
+function deepClone(x){ return JSON.parse(JSON.stringify(x)); }
+
+function seedState() {
+  state.period = {...DEFAULT_PERIOD};
+  state.faculty = deepClone(SEED_FACULTY).map(f => ({...f, id: uid()}));
+  state.requests = {};
+  state.faculty.forEach(f => {
+    state.requests[f.initials] = SEED_REQUESTS[f.initials]
+      ? deepClone(SEED_REQUESTS[f.initials])
+      : { hardBlockWeeks:[], hardBlockWeekends:[], softAvoidWeeks:[], preferWeeks:[] };
+  });
+  state.schedule = {};
+}
+
+function saveLocal() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+    const el = $('#autosave-indicator');
+    if (el) {
+      el.textContent = 'Autosaved ' + new Date().toLocaleTimeString();
+      el.style.color = '#5c5';
+    }
+  } catch(e) {
+    console.warn('autosave failed', e);
+  }
+}
+
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.version) {
+        state = parsed;
+        migrateState();
+        return true;
+      }
+    }
+  } catch(e) { console.warn('load failed', e); }
+  return false;
+}
+
+// Backfill newly-added fields on state loaded from older localStorage saves.
+function migrateState() {
+  if (!state.faculty) return;
+  const seedByInit = {};
+  SEED_FACULTY.forEach(f => { seedByInit[f.initials] = f; });
+  state.faculty.forEach(f => {
+    if (f.opOBPref === undefined) {
+      // Inherit from seed if the faculty name matches; otherwise default to false.
+      const seed = seedByInit[f.initials];
+      f.opOBPref = !!(seed && seed.opOBPref);
+    }
+  });
+  saveLocal();
+}
+
+/* ---------- Week + block helpers ---------- */
+function weeksInPeriod() {
+  const start = parseISO(state.period.startDate);
+  const arr = [];
+  for (let i = 0; i < state.period.weeks; i++) {
+    const mon = addDays(start, i*7);
+    arr.push({
+      iso: fmtISO(mon),
+      mon, sun: addDays(mon, 6),
+      sat: addDays(mon, 5),
+      block: Math.floor(i/4) + 1,       // Block 1,2,3…
+      index: i,
+    });
+  }
+  return arr;
+}
+
+function weekHolidays(w) {
+  // Return array of holiday names in Mon-Sun range
+  const out = [];
+  for (let d = 0; d < 7; d++) {
+    const iso = fmtISO(addDays(w.mon, d));
+    if (HOLIDAYS[iso]) out.push({ date: iso, name: HOLIDAYS[iso] });
+  }
+  return out;
+}
+function weekendHasHoliday(w) {
+  // Sat or Sun falls on a holiday
+  const sat = fmtISO(w.sat), sun = fmtISO(addDays(w.sat,1));
+  return HOLIDAYS[sat] || HOLIDAYS[sun] ? (HOLIDAYS[sat] || HOLIDAYS[sun]) : null;
+}
+
+function ensureWeekEntry(iso) {
+  if (!state.schedule[iso]) {
+    state.schedule[iso] = {
+      week: { gold:'', bronze:'', ob:'' },
+      weekend: { gold:'', bronze:'', ob:'' },
+    };
+  }
+  return state.schedule[iso];
+}
+
+function facultyByInitials(init) {
+  return state.faculty.find(f => f.initials === init);
+}
+
+/* ---------- Violation / flag engine ---------- */
+function flagsForWeek(w) {
+  // Returns {hard:[], soft:[]} for the whole row
+  const entry = state.schedule[w.iso];
+  const hard = [], soft = [];
+  if (!entry) return {hard, soft};
+
+  const svcList = ['gold','bronze','ob'];
+
+  // 1. Eligibility check (week)
+  for (const s of svcList) {
+    const init = entry.week[s];
+    if (!init) continue;
+    const f = facultyByInitials(init);
+    if (!f) { hard.push(`${init} on ${s} week: faculty not found`); continue; }
+    if (!f.services[s]) hard.push(`${init} can't do ${s} (week)`);
+  }
+  // 2. Eligibility check (weekend)
+  for (const s of svcList) {
+    const init = entry.weekend[s];
+    if (!init) continue;
+    const f = facultyByInitials(init);
+    if (!f) { hard.push(`${init} on ${s} wknd: faculty not found`); continue; }
+    if (!f.services[s]) hard.push(`${init} can't do ${s} (wknd)`);
+  }
+
+  // 3. Same person on 2 services same week
+  const weekAssigned = svcList.map(s => entry.week[s]).filter(Boolean);
+  const dupWeek = new Set();
+  weekAssigned.forEach(x => {
+    if (weekAssigned.indexOf(x) !== weekAssigned.lastIndexOf(x)) dupWeek.add(x);
+  });
+  dupWeek.forEach(x => hard.push(`${x} on 2 services same week`));
+
+  // 4. OB + Bronze on same weekend (global hard rule)
+  if (entry.weekend.ob && entry.weekend.bronze && entry.weekend.ob === entry.weekend.bronze) {
+    hard.push(`${entry.weekend.ob}: OB + Bronze same weekend (not allowed)`);
+  }
+
+  // 5. Weekend-combo rule per faculty
+  // Collect each person's weekend services
+  const wknd = {};
+  for (const s of svcList) {
+    const init = entry.weekend[s];
+    if (!init) continue;
+    wknd[init] = wknd[init] || [];
+    wknd[init].push(s);
+  }
+  for (const init in wknd) {
+    const svcs = wknd[init];
+    if (svcs.length < 2) continue;
+    const f = facultyByInitials(init);
+    if (!f) continue;
+    const rule = (f.weekendRule === 'goldObOk') ? 'goldObOk' : 'solo';
+    if (rule === 'solo') {
+      hard.push(`${init} wknd: solo-only rule (assigned ${svcs.join('+')})`);
+    } else if (rule === 'goldObOk') {
+      const ok = svcs.every(s => s === 'gold' || s === 'ob');
+      if (!ok) hard.push(`${init} wknd: Gold+OB only (assigned ${svcs.join('+')})`);
+    }
+  }
+
+  // 6. Hard-block week / weekend requests
+  for (const s of svcList) {
+    const init = entry.week[s];
+    if (init) {
+      const r = state.requests[init];
+      if (r && r.hardBlockWeeks.includes(w.iso)) hard.push(`${init} hard-blocked week`);
+      // If the person is assigned the week, they shouldn't have a hard-blocked weekend,
+      // since faculty pair weekends with their inpatient week (and Gold always does).
+      if (r && r.hardBlockWeekends.includes(fmtISO(w.sat))) hard.push(`${init} on ${s} week but wknd hard-blocked`);
+    }
+    const initW = entry.weekend[s];
+    if (initW) {
+      const r = state.requests[initW];
+      if (r && r.hardBlockWeekends.includes(fmtISO(w.sat))) hard.push(`${initW} hard-blocked wknd`);
+    }
+  }
+
+  // 7. Soft-avoid flags
+  for (const s of svcList) {
+    const init = entry.week[s];
+    if (!init) continue;
+    const r = state.requests[init];
+    if (!r) continue;
+    const match = r.softAvoidWeeks.find(x => x.week === w.iso);
+    if (match) soft.push(`${init} soft-avoid (P${match.priority})`);
+  }
+
+  return {hard, soft};
+}
+
+/* Return an array of per-faculty request items relevant to this week:
+   hard-block week, hard-block weekend, soft-avoid week, preferred week.
+   Shape: [{init, kind: 'hard'|'soft'|'prefer', text}]
+*/
+function requestsForWeek(w) {
+  const items = [];
+  const satIso = fmtISO(w.sat);
+  state.faculty.forEach(f => {
+    const init = f.initials;
+    const r = state.requests[init];
+    if (!r) return;
+    const weekHard = r.hardBlockWeeks && r.hardBlockWeeks.includes(w.iso);
+    const wkndHard = r.hardBlockWeekends && r.hardBlockWeekends.includes(satIso);
+    if (weekHard && wkndHard) {
+      items.push({init, kind:'hard', text:`${init} off (full week PTO)`});
+    } else if (weekHard) {
+      items.push({init, kind:'hard', text:`${init} off (weekdays)`});
+    } else if (wkndHard) {
+      items.push({init, kind:'hard', text:`${init} off (weekend)`});
+    }
+    const softMatch = r.softAvoidWeeks && r.softAvoidWeeks.find(x => x.week === w.iso);
+    if (softMatch) {
+      items.push({init, kind:'soft', text:`${init} prefers not (P${softMatch.priority})`});
+    }
+    if (r.preferWeeks && r.preferWeeks.includes(w.iso)) {
+      items.push({init, kind:'prefer', text:`${init} wants this week`});
+    }
+  });
+  // Sort: hard first, then soft, then prefer; within each, alphabetical by init
+  const order = {hard:0, soft:1, prefer:2};
+  items.sort((a,b) => (order[a.kind]-order[b.kind]) || a.init.localeCompare(b.init));
+  return items;
+}
+
+/* Identify "forced conflicts": hard rule violations across the whole schedule.
+   Returns an array of {iso, weekLabel, messages: []}.
+*/
+function forcedConflicts(weeks) {
+  const out = [];
+  const crossFlags = crossWeekFlags(weeks);
+  weeks.forEach(w => {
+    const {hard} = flagsForWeek(w);
+    const extra = crossFlags[w.iso] || {hard:[], soft:[]};
+    const all = [...hard, ...extra.hard];
+    if (all.length) {
+      out.push({
+        iso: w.iso,
+        weekLabel: `Block ${w.block} — week of ${fmtShort(w.mon)}`,
+        messages: all
+      });
+    }
+  });
+  return out;
+}
+
+function crossWeekFlags(weeks) {
+  // Return map of iso -> extra soft/hard notes based on adjacent weeks
+  const extras = {};
+  for (let i = 0; i < weeks.length; i++) {
+    const w = weeks[i];
+    const prev = weeks[i-1];
+    if (!prev) continue;
+    const entry = state.schedule[w.iso];
+    const prevEntry = state.schedule[prev.iso];
+    if (!entry || !prevEntry) continue;
+
+    // Back-to-back inpatient (same person on any service this week and last week)
+    const thisWk = Object.values(entry.week).filter(Boolean);
+    const prevWk = Object.values(prevEntry.week).filter(Boolean);
+    for (const p of prevWk) {
+      if (thisWk.includes(p)) {
+        (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]}).hard.push(
+          `${p}: back-to-back inpatient (prev week)`
+        );
+      }
+    }
+    // Post-Gold: whoever did Gold last week should not do any inpatient this week (hard per rules)
+    if (prevEntry.week.gold) {
+      const g = prevEntry.week.gold;
+      if (thisWk.includes(g)) {
+        // already flagged as back-to-back, upgrade note
+        (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]}).hard.push(
+          `${g}: post-Gold back-to-back (strongly discouraged)`
+        );
+      }
+    }
+  }
+
+  // Twice in same block soft-flag
+  const byBlock = {};
+  for (const w of weeks) {
+    byBlock[w.block] = byBlock[w.block] || [];
+    const entry = state.schedule[w.iso];
+    if (!entry) continue;
+    const people = new Set([...Object.values(entry.week).filter(Boolean)]);
+    people.forEach(p => byBlock[w.block].push({p, iso: w.iso}));
+  }
+  for (const block in byBlock) {
+    const counts = {};
+    byBlock[block].forEach(({p}) => counts[p] = (counts[p]||0)+1);
+    const dupes = Object.keys(counts).filter(p => counts[p] > 1);
+    for (const p of dupes) {
+      const entries = byBlock[block].filter(x => x.p === p);
+      entries.forEach(({iso}) => {
+        (extras[iso] = extras[iso] || {hard:[], soft:[]}).soft.push(
+          `${p}: 2 weeks in Block ${block}`
+        );
+      });
+    }
+  }
+
+  // Holiday repeat — if same person works 2 major holidays in the period, flag both
+  const holidayWeekAssignments = {}; // person -> [iso of holiday week]
+  const holidayIsos = Object.keys(HOLIDAYS);
+  for (const w of weeks) {
+    const entry = state.schedule[w.iso];
+    if (!entry) continue;
+    const hols = weekHolidays(w);
+    const wkndHol = weekendHasHoliday(w);
+    if (!hols.length && !wkndHol) continue;
+    const assigned = new Set([
+      ...Object.values(entry.week).filter(Boolean),
+      ...Object.values(entry.weekend).filter(Boolean),
+    ]);
+    assigned.forEach(p => {
+      holidayWeekAssignments[p] = holidayWeekAssignments[p] || [];
+      holidayWeekAssignments[p].push(w.iso);
+    });
+  }
+  for (const p in holidayWeekAssignments) {
+    if (holidayWeekAssignments[p].length > 1) {
+      holidayWeekAssignments[p].forEach(iso => {
+        (extras[iso] = extras[iso] || {hard:[], soft:[]}).soft.push(
+          `${p}: holiday repeat (${holidayWeekAssignments[p].length} major holidays)`
+        );
+      });
+    }
+  }
+
+  return extras;
+}
+
+/* ---------- Rendering: tab switcher ---------- */
+function activateTab(name) {
+  $$('.tab').forEach(s => s.classList.remove('active'));
+  $('#tab-' + name).classList.add('active');
+  $$('header nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  if (name === 'faculty') renderFaculty();
+  if (name === 'requests') renderRequestsTab();
+  if (name === 'pto') renderPTOOverview();
+  if (name === 'schedule') renderSchedule();
+  if (name === 'progress') renderProgress();
+  if (name === 'data') { if (typeof renderCloudPanel === 'function') renderCloudPanel(); }
+}
+
+/* ---------- Rendering: Faculty tab ---------- */
+function renderFaculty() {
+  const tbody = $('#faculty-table tbody');
+  tbody.innerHTML = '';
+  state.faculty.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.className = 'faculty-row';
+    tr.dataset.init = f.initials.toLowerCase();
+    tr.innerHTML = `
+      <td><input type="text" value="${escapeHtml(f.initials)}" data-field="initials" style="font-weight:600"></td>
+      <td><input type="text" value="${escapeHtml(f.fullName||'')}" data-field="fullName"></td>
+      <td class="center"><input type="checkbox" data-field="services.gold" ${f.services.gold?'checked':''}></td>
+      <td class="center"><input type="checkbox" data-field="services.bronze" ${f.services.bronze?'checked':''}></td>
+      <td class="center"><input type="checkbox" data-field="services.ob" ${f.services.ob?'checked':''}></td>
+      <td><input type="number" step="0.1" min="0" value="${f.goals.gold||0}" data-field="goals.gold"></td>
+      <td><input type="number" step="0.1" min="0" value="${f.goals.obWeek||0}" data-field="goals.obWeek"></td>
+      <td><input type="number" step="0.1" min="0" value="${f.goals.obWeekend||0}" data-field="goals.obWeekend"></td>
+      <td><input type="number" step="0.1" min="0" value="${f.goals.bronze||0}" data-field="goals.bronze"></td>
+      <td><input type="number" step="0.1" min="0" value="${f.goals.bronzeWeekend||0}" data-field="goals.bronzeWeekend"></td>
+      <td>
+        <select data-field="weekendRule">
+          <option value="solo"${(f.weekendRule!=='goldObOk')?' selected':''}>Solo only</option>
+          <option value="goldObOk"${f.weekendRule==='goldObOk'?' selected':''}>Gold + OB ok</option>
+        </select>
+      </td>
+      <td class="center"><input type="checkbox" data-field="opOBPref" ${f.opOBPref?'checked':''} title="Operative-OB preferred: absorbs extra OB weeks over goal"></td>
+      <td><input type="text" value="${escapeHtml(f.notes||'')}" data-field="notes"></td>
+      <td><button class="btn small danger" data-action="delete-faculty" data-id="${f.id}">×</button></td>
+    `;
+    tbody.appendChild(tr);
+
+    // Bind field edits
+    tr.querySelectorAll('[data-field]').forEach(el => {
+      el.addEventListener('change', e => {
+        const path = el.dataset.field.split('.');
+        let obj = f;
+        while (path.length > 1) obj = obj[path.shift()];
+        const key = path[0];
+        if (el.type === 'checkbox') obj[key] = el.checked;
+        else if (el.type === 'number') obj[key] = parseFloat(el.value) || 0;
+        else {
+          const oldInit = f.initials;
+          obj[key] = el.value.trim();
+          // If initials changed, migrate requests key
+          if (key === 'initials' && oldInit !== obj[key]) {
+            state.requests[obj[key]] = state.requests[oldInit] || { hardBlockWeeks:[], hardBlockWeekends:[], softAvoidWeeks:[], preferWeeks:[] };
+            delete state.requests[oldInit];
+            // Update schedule entries that reference oldInit
+            for (const iso in state.schedule) {
+              const e2 = state.schedule[iso];
+              for (const kind of ['week','weekend']) {
+                for (const s of ['gold','bronze','ob']) {
+                  if (e2[kind][s] === oldInit) e2[kind][s] = obj[key];
+                }
+              }
+            }
+          }
+        }
+        saveLocal();
+        // Only re-render other tabs if they're visible
+      });
+    });
+
+    tr.querySelector('[data-action=delete-faculty]').addEventListener('click', () => {
+      if (!confirm(`Delete ${f.initials}?`)) return;
+      state.faculty = state.faculty.filter(x => x.id !== f.id);
+      delete state.requests[f.initials];
+      // Clear schedule assignments referencing this faculty
+      for (const iso in state.schedule) {
+        const e2 = state.schedule[iso];
+        for (const kind of ['week','weekend']) {
+          for (const s of ['gold','bronze','ob']) {
+            if (e2[kind][s] === f.initials) e2[kind][s] = '';
+          }
+        }
+      }
+      saveLocal();
+      renderFaculty();
+    });
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+$('#btn-add-faculty').addEventListener('click', () => {
+  const nf = {
+    id: uid(), initials:'NEW', fullName:'',
+    services:{gold:false,bronze:false,ob:false},
+    goals:{gold:0,obWeek:0,obWeekend:0,bronze:0,bronzeWeekend:0},
+    weekendRule:'solo', opOBPref:false, notes:''
+  };
+  state.faculty.push(nf);
+  state.requests[nf.initials] = { hardBlockWeeks:[], hardBlockWeekends:[], softAvoidWeeks:[], preferWeeks:[] };
+  saveLocal();
+  renderFaculty();
+});
+
+$('#faculty-search').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  $$('.faculty-row').forEach(r => {
+    const show = !q || r.dataset.init.includes(q);
+    r.classList.toggle('hide', !show);
+  });
+});
+
+/* ---------- Rendering: Requests tab ---------- */
+function renderRequestsTab() {
+  const sel = $('#req-faculty-select');
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">— choose faculty —</option>' +
+    state.faculty.map(f => `<option value="${escapeHtml(f.initials)}">${escapeHtml(f.initials)}${f.fullName?' ('+escapeHtml(f.fullName)+')':''}</option>`).join('');
+  if (currentVal && state.faculty.some(f=>f.initials===currentVal)) sel.value = currentVal;
+  renderRequestPanel(sel.value);
+}
+
+$('#req-faculty-select').addEventListener('change', e => renderRequestPanel(e.target.value));
+
+function renderRequestPanel(init) {
+  const panel = $('#req-panel');
+  if (!init) { panel.innerHTML = '<p class="small">Pick a faculty member to see their requests.</p>'; return; }
+  const r = state.requests[init] || { hardBlockWeeks:[], hardBlockWeekends:[], softAvoidWeeks:[], preferWeeks:[] };
+  state.requests[init] = r;
+
+  const weeks = weeksInPeriod();
+  const weekOptions = weeks.map(w => `<option value="${w.iso}">Week of ${fmtLong(w.mon)} (Block ${w.block})</option>`).join('');
+  const weekendOptions = weeks.map(w => `<option value="${fmtISO(w.sat)}">Weekend ${fmtLong(w.sat)}–${fmtLong(addDays(w.sat,1))} (Block ${w.block})</option>`).join('');
+
+  panel.innerHTML = `
+    <h3 style="margin-top:0">${escapeHtml(init)} — requests</h3>
+
+    <div class="row">
+      <div class="panel" style="background:#fef6f5">
+        <h3 style="margin-top:0; color:var(--hard)">Hard-block WEEKS (cannot be on inpatient)</h3>
+        <div class="toolbar">
+          <select id="hbw-sel" style="flex:1 1 auto; padding:5px"><option value="">— pick a week —</option>${weekOptions}</select>
+          <button class="btn small" id="hbw-add">Add</button>
+        </div>
+        <ul class="req-list">
+          ${r.hardBlockWeeks.map(iso => {
+            const w = weeks.find(x=>x.iso===iso);
+            const label = w ? `Week of ${fmtLong(w.mon)}` : iso;
+            return `<li class="hard">${label} <button data-remove="hbw" data-val="${iso}">×</button></li>`;
+          }).join('') || '<li class="small">None</li>'}
+        </ul>
+      </div>
+
+      <div class="panel" style="background:#fef6f5">
+        <h3 style="margin-top:0; color:var(--hard)">Hard-block WEEKENDS</h3>
+        <div class="toolbar">
+          <select id="hbwe-sel" style="flex:1 1 auto; padding:5px"><option value="">— pick a weekend —</option>${weekendOptions}</select>
+          <button class="btn small" id="hbwe-add">Add</button>
+        </div>
+        <ul class="req-list">
+          ${r.hardBlockWeekends.map(iso => {
+            const w = weeks.find(x=>fmtISO(x.sat)===iso);
+            const label = w ? `Weekend ${fmtLong(w.sat)}` : iso;
+            return `<li class="hard">${label} <button data-remove="hbwe" data-val="${iso}">×</button></li>`;
+          }).join('') || '<li class="small">None</li>'}
+        </ul>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="panel" style="background:#fef9f0">
+        <h3 style="margin-top:0; color:var(--soft)">Soft-avoid weeks (prefer not to be on)</h3>
+        <div class="toolbar">
+          <select id="saw-sel" style="flex:2 1 auto; padding:5px"><option value="">— pick a week —</option>${weekOptions}</select>
+          <select id="saw-pri" style="flex:1 1 auto; padding:5px">
+            <option value="1">Priority 1 (mild)</option>
+            <option value="2" selected>Priority 2 (moderate)</option>
+            <option value="3">Priority 3 (strong)</option>
+          </select>
+          <button class="btn small" id="saw-add">Add</button>
+        </div>
+        <ul class="req-list">
+          ${r.softAvoidWeeks.map(x => {
+            const w = weeks.find(y=>y.iso===x.week);
+            const label = w ? `Week of ${fmtLong(w.mon)}` : x.week;
+            return `<li class="soft">${label} · P${x.priority} <button data-remove="saw" data-val="${x.week}">×</button></li>`;
+          }).join('') || '<li class="small">None</li>'}
+        </ul>
+      </div>
+
+      <div class="panel" style="background:#f2faf4">
+        <h3 style="margin-top:0; color:var(--ok)">Prefer-to-work weeks</h3>
+        <div class="toolbar">
+          <select id="pw-sel" style="flex:1 1 auto; padding:5px"><option value="">— pick a week —</option>${weekOptions}</select>
+          <button class="btn small" id="pw-add">Add</button>
+        </div>
+        <ul class="req-list">
+          ${r.preferWeeks.map(iso => {
+            const w = weeks.find(x=>x.iso===iso);
+            const label = w ? `Week of ${fmtLong(w.mon)}` : iso;
+            return `<li class="prefer">${label} <button data-remove="pw" data-val="${iso}">×</button></li>`;
+          }).join('') || '<li class="small">None</li>'}
+        </ul>
+      </div>
+    </div>
+  `;
+
+  const addHandlers = [
+    ['hbw-add','hbw-sel', v => { if (v && !r.hardBlockWeeks.includes(v)) r.hardBlockWeeks.push(v); }],
+    ['hbwe-add','hbwe-sel', v => { if (v && !r.hardBlockWeekends.includes(v)) r.hardBlockWeekends.push(v); }],
+    ['saw-add','saw-sel', v => {
+      if (!v) return;
+      const pri = parseInt($('#saw-pri').value, 10) || 2;
+      const existing = r.softAvoidWeeks.find(x=>x.week===v);
+      if (existing) existing.priority = pri;
+      else r.softAvoidWeeks.push({ week:v, priority:pri });
+    }],
+    ['pw-add','pw-sel', v => { if (v && !r.preferWeeks.includes(v)) r.preferWeeks.push(v); }],
+  ];
+  addHandlers.forEach(([btn, sel, fn]) => {
+    $('#'+btn).addEventListener('click', () => {
+      fn($('#'+sel).value);
+      saveLocal();
+      renderRequestPanel(init);
+    });
+  });
+  panel.querySelectorAll('[data-remove]').forEach(b => {
+    b.addEventListener('click', () => {
+      const kind = b.dataset.remove, val = b.dataset.val;
+      if (kind==='hbw') r.hardBlockWeeks = r.hardBlockWeeks.filter(x=>x!==val);
+      if (kind==='hbwe') r.hardBlockWeekends = r.hardBlockWeekends.filter(x=>x!==val);
+      if (kind==='saw') r.softAvoidWeeks = r.softAvoidWeeks.filter(x=>x.week!==val);
+      if (kind==='pw') r.preferWeeks = r.preferWeeks.filter(x=>x!==val);
+      saveLocal();
+      renderRequestPanel(init);
+    });
+  });
+}
+
+/* ---------- Rendering: Schedule tab ---------- */
+function renderSchedule() {
+  const weeks = weeksInPeriod();
+  const first = weeks[0], last = weeks[weeks.length-1];
+  $('#period-label').textContent = `${fmtLong(first.mon)} – ${fmtLong(last.sun)}`;
+  $('#period-start').value = state.period.startDate;
+  $('#period-weeks').value = state.period.weeks;
+
+  // Ensure schedule entries exist; also force Gold weekend == Gold week (rule: Gold weekends always pair with Gold weeks)
+  weeks.forEach(w => {
+    ensureWeekEntry(w.iso);
+    state.schedule[w.iso].weekend.gold = state.schedule[w.iso].week.gold || '';
+  });
+
+  // Forced conflicts panel (hard violations at the top)
+  const panel = $('#forced-conflicts-panel');
+  if (panel) {
+    const conflicts = forcedConflicts(weeks);
+    if (!conflicts.length) {
+      panel.className = 'conflicts-panel clean';
+      panel.innerHTML = `<h3>✓ No forced conflicts</h3>
+        <div class="small">No hard-rule violations in the current schedule. All assignments honor eligibility, PTO hard-blocks, back-to-back limits, and weekend rules.</div>`;
+    } else {
+      panel.className = 'conflicts-panel';
+      const n = conflicts.reduce((sum, c) => sum + c.messages.length, 0);
+      panel.innerHTML = `<h3>⚠ Forced conflicts (${n})</h3>
+        <div class="small">The schedule contains hard-rule violations — auto-fill could not satisfy every constraint. Review, re-run auto-fill, or hand-edit the flagged cells below.</div>
+        <ul>${conflicts.map(c =>
+          `<li><b>${escapeHtml(c.weekLabel)}:</b> ${c.messages.map(escapeHtml).join('; ')}</li>`
+        ).join('')}</ul>`;
+    }
+  }
+
+  const tbody = $('#schedule-table tbody');
+  tbody.innerHTML = '';
+  const crossFlags = crossWeekFlags(weeks);
+
+  weeks.forEach(w => {
+    const entry = state.schedule[w.iso];
+    const hols = weekHolidays(w);
+    const tr = document.createElement('tr');
+    const { hard: cellHard, soft: cellSoft } = flagsForWeek(w);
+    const extra = crossFlags[w.iso] || { hard:[], soft:[] };
+    const hard = [...cellHard, ...extra.hard];
+    const soft = [...cellSoft, ...extra.soft];
+
+    function svcCell(kind, svc) {
+      // kind = 'week' or 'weekend', svc = 'gold'|'bronze'|'ob'
+      const isWeekend = kind === 'weekend';
+      const currVal = entry[kind][svc];
+      // Gold weekend is always mirrored from Gold week — render as a static cell
+      if (isWeekend && svc === 'gold') {
+        let outline = '';
+        if (currVal) {
+          const r = state.requests[currVal];
+          if (r && r.hardBlockWeekends && r.hardBlockWeekends.includes(fmtISO(w.sat))) outline = ' cell-violation';
+          const f = facultyByInitials(currVal);
+          if (!f || !f.services.gold) outline = ' cell-violation';
+        }
+        const display = currVal ? escapeHtml(currVal) : '<span style="color:#aaa">—</span>';
+        return `<td class="cell-gold${outline}" title="Gold weekend always pairs with Gold week" style="font-weight:500">${display} <span class="small" style="color:#888">(= Gold wk)</span></td>`;
+      }
+      const eligible = state.faculty.filter(f => f.services[svc]);
+      // build dropdown
+      const opts = ['<option value="">—</option>'].concat(
+        eligible.map(f => `<option value="${escapeHtml(f.initials)}"${f.initials===currVal?' selected':''}>${escapeHtml(f.initials)}</option>`)
+      ).join('');
+      const cls = `cell-${svc}`;
+      // flag outlining specific cell
+      let outline = '';
+      if (currVal) {
+        const r = state.requests[currVal];
+        if (r) {
+          if (!isWeekend && r.hardBlockWeeks.includes(w.iso)) outline = ' cell-violation';
+          if (isWeekend && r.hardBlockWeekends.includes(fmtISO(w.sat))) outline = ' cell-violation';
+          if (!outline && !isWeekend && r.softAvoidWeeks.find(x=>x.week===w.iso)) outline = ' cell-soft';
+        }
+        // eligibility check on cell
+        const f = facultyByInitials(currVal);
+        if (!f || !f.services[svc]) outline = ' cell-violation';
+      }
+      return `<td class="${cls}${outline}"><select class="assign-select" data-iso="${w.iso}" data-kind="${kind}" data-svc="${svc}">${opts}</select></td>`;
+    }
+
+    const blockLabel = `${w.block}`;
+    const weekOfHtml = `
+      <div style="font-weight:600">${fmtShort(w.mon)}–${fmtShort(w.sun)}</div>
+      ${hols.length ? `<div class="holiday-note">★ ${hols.map(h=>h.name).join(', ')}</div>` : ''}
+      <div class="small">${w.iso}</div>
+    `;
+    const wkndHol = weekendHasHoliday(w);
+    const flagsHtml = [
+      ...hard.map(x => `<span class="flag-pill hard" title="${escapeHtml(x)}">!</span>`),
+      ...soft.map(x => `<span class="flag-pill soft" title="${escapeHtml(x)}">~</span>`),
+      wkndHol ? `<span class="flag-pill soft" title="Weekend contains ${escapeHtml(wkndHol)}">wknd ★</span>` : '',
+    ].filter(Boolean).join(' ');
+    const flagsTooltip = [...hard, ...soft].map(escapeHtml).join(' · ');
+
+    const reqItems = requestsForWeek(w);
+    const requestsHtml = reqItems.length
+      ? reqItems.map(i => `<span class="req-item ${i.kind}">${escapeHtml(i.text)}</span>`).join('')
+      : '<span class="small" style="color:#aaa">—</span>';
+
+    tr.innerHTML = `
+      <td class="block-col">${blockLabel}</td>
+      <td class="week-col">${weekOfHtml}</td>
+      ${svcCell('week','gold')}
+      ${svcCell('week','bronze')}
+      ${svcCell('week','ob')}
+      ${svcCell('weekend','gold')}
+      ${svcCell('weekend','bronze')}
+      ${svcCell('weekend','ob')}
+      <td title="${flagsTooltip}">${flagsHtml}</td>
+      <td class="requests-cell">${requestsHtml}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Bind selects
+  tbody.querySelectorAll('.assign-select').forEach(sel => {
+    sel.addEventListener('change', e => {
+      const iso = sel.dataset.iso, kind = sel.dataset.kind, svc = sel.dataset.svc;
+      ensureWeekEntry(iso);
+      state.schedule[iso][kind][svc] = sel.value;
+      // Gold weekend always mirrors Gold week
+      if (kind === 'week' && svc === 'gold') {
+        state.schedule[iso].weekend.gold = sel.value;
+      }
+      saveLocal();
+      renderSchedule();
+    });
+  });
+}
+
+/* ---------- Auto-fill scheduler ---------- */
+function canAssignWeekendTo(init, svc, w, entry) {
+  // Returns true if `init` can be assigned to weekend `svc` given current entry state
+  const f = facultyByInitials(init);
+  if (!f) return false;
+  if (!f.services[svc]) return false;
+  const r = state.requests[init] || { hardBlockWeekends: [] };
+  if ((r.hardBlockWeekends || []).includes(fmtISO(w.sat))) return false;
+  // OB+Bronze global weekend exclusion
+  if (svc === 'ob' && entry.weekend.bronze === init) return false;
+  if (svc === 'bronze' && entry.weekend.ob === init) return false;
+  // Personal weekend combo rule
+  const alreadyOnWeekend = ['gold','bronze','ob'].filter(s => s !== svc && entry.weekend[s] === init);
+  if (alreadyOnWeekend.length > 0) {
+    const rule = (f.weekendRule === 'goldObOk') ? 'goldObOk' : 'solo';
+    if (rule === 'solo') return false;
+    if (rule === 'goldObOk') {
+      const allSvcs = new Set([svc, ...alreadyOnWeekend]);
+      const ok = Array.from(allSvcs).every(s => s === 'gold' || s === 'ob');
+      if (!ok) return false;
+    }
+  }
+  return true;
+}
+
+function autoFillSchedule(options = {}) {
+  const { replaceAll = false } = options;
+  const weeks = weeksInPeriod();
+  weeks.forEach(w => ensureWeekEntry(w.iso));
+  if (replaceAll) {
+    weeks.forEach(w => {
+      state.schedule[w.iso] = { week:{gold:'',bronze:'',ob:''}, weekend:{gold:'',bronze:'',ob:''} };
+    });
+  }
+
+  // Pre-compute lastWeekIdx (from any already-filled weeks) to respect back-to-back
+  const lastWeekIdx = {};
+  weeks.forEach((w, wi) => {
+    const e = state.schedule[w.iso];
+    const ppl = new Set([...Object.values(e.week).filter(Boolean)]);
+    ppl.forEach(p => lastWeekIdx[p] = wi);
+  });
+  // Track holiday hits for "no repeat holiday" soft preference
+  const holidayHits = {};
+  weeks.forEach(w => {
+    if (weekHolidays(w).length === 0 && !weekendHasHoliday(w)) return;
+    const e = state.schedule[w.iso];
+    const ppl = new Set([
+      ...Object.values(e.week).filter(Boolean),
+      ...Object.values(e.weekend).filter(Boolean),
+    ]);
+    ppl.forEach(p => holidayHits[p] = (holidayHits[p]||0) + 1);
+  });
+
+  let assigned = 0, skipped = 0;
+
+  function tryFill(allowOverGoal, overflowMode, svcFilter) {
+    // svcFilter: optional — restrict filling to these services only (e.g., ['ob'])
+    for (let wi = 0; wi < weeks.length; wi++) {
+      const w = weeks[wi];
+      const entry = state.schedule[w.iso];
+      // Week services: Gold, OB, Bronze
+      for (const svc of ['gold','ob','bronze']) {
+        if (svcFilter && !svcFilter.includes(svc)) continue;
+        if (entry.week[svc]) continue;
+        const pick = pickBestFaculty(svc, w, wi, 'week', entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode);
+        if (pick) { entry.week[svc] = pick; lastWeekIdx[pick] = wi; assigned++; }
+      }
+      // Gold weekend ALWAYS = Gold week (rule: Gold weekends pair with Gold weeks)
+      entry.weekend.gold = entry.week.gold || '';
+      // OB + Bronze weekends: first try the person doing that service this week
+      for (const svc of ['ob','bronze']) {
+        if (svcFilter && !svcFilter.includes(svc)) continue;
+        if (entry.weekend[svc]) continue;
+        const weekPerson = entry.week[svc];
+        if (weekPerson && canAssignWeekendTo(weekPerson, svc, w, entry)) {
+          entry.weekend[svc] = weekPerson;
+          if (weekHolidays(w).length > 0 || weekendHasHoliday(w)) {
+            holidayHits[weekPerson] = (holidayHits[weekPerson]||0) + 1;
+          }
+          assigned++;
+          continue;
+        }
+        const pick = pickBestFaculty(svc, w, wi, 'weekend', entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode);
+        if (pick) {
+          entry.weekend[svc] = pick;
+          if (weekHolidays(w).length > 0 || weekendHasHoliday(w)) {
+            holidayHits[pick] = (holidayHits[pick]||0) + 1;
+          }
+          assigned++;
+        }
+      }
+    }
+  }
+
+  // Pass 1: strict (under goal only)
+  tryFill(false);
+  // Pass 2: OB overflow — only faculty marked opOBPref may exceed goal for OB
+  tryFill(true, 'opOBOnly', ['ob']);
+  // Pass 3: allow going over goal to fill remaining cells (all services, anyone)
+  tryFill(true, 'any');
+
+  // Count remaining empty
+  for (const w of weeks) {
+    const e = state.schedule[w.iso];
+    ['gold','bronze','ob'].forEach(svc => {
+      if (!e.week[svc]) skipped++;
+      if (!e.weekend[svc]) skipped++;
+    });
+  }
+
+  saveLocal();
+  renderSchedule();
+  renderProgress();
+  return { assigned, skipped };
+}
+
+function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode) {
+  // overflowMode (optional):
+  //   undefined/'any' — default; anyone may go over goal when allowOverGoal is true
+  //   'opOBOnly'       — only faculty with opOBPref=true may be picked over goal (used for OB overflow pass)
+  const eligible = state.faculty.filter(f => f.services[svc]);
+  const weekIso = w.iso;
+  const satIso = fmtISO(w.sat);
+  const isHolidayWk = weekHolidays(w).length > 0 || !!weekendHasHoliday(w);
+  const tallies = tallyAssignments();
+  const candidates = [];
+
+  for (const f of eligible) {
+    const r = state.requests[f.initials] || { hardBlockWeeks:[], hardBlockWeekends:[], softAvoidWeeks:[], preferWeeks:[] };
+
+    // Hard: personal block
+    if (kind === 'week' && r.hardBlockWeeks.includes(weekIso)) continue;
+    if (kind === 'weekend' && r.hardBlockWeekends.includes(satIso)) continue;
+    // Hard: if assigning a WEEK, don't pick someone who can't work that week's weekend.
+    // Faculty should not be assigned to a week if they have a hard-blocked weekend,
+    // because they prefer (and for Gold, must) pair the weekend with the week.
+    if (kind === 'week' && r.hardBlockWeekends.includes(satIso)) continue;
+
+    // Hard: same person two services in same week
+    if (kind === 'week') {
+      const others = ['gold','bronze','ob'].filter(s => s !== svc).map(s => entry.week[s]).filter(Boolean);
+      if (others.includes(f.initials)) continue;
+    }
+
+    // Hard: weekend combinations
+    if (kind === 'weekend') {
+      // OB + Bronze global exclusion (same person)
+      if (svc === 'ob' && entry.weekend.bronze === f.initials) continue;
+      if (svc === 'bronze' && entry.weekend.ob === f.initials) continue;
+      // Personal weekend combo rule
+      const alreadyOnWeekend = ['gold','bronze','ob'].filter(s => s !== svc && entry.weekend[s] === f.initials);
+      if (alreadyOnWeekend.length > 0) {
+        const rule = (f.weekendRule === 'goldObOk') ? 'goldObOk' : 'solo';
+        if (rule === 'solo') continue;
+        if (rule === 'goldObOk') {
+          // current svc + all already-assigned weekend services must all be gold or ob
+          const allSvcs = new Set([svc, ...alreadyOnWeekend]);
+          const ok = Array.from(allSvcs).every(s => s === 'gold' || s === 'ob');
+          if (!ok) continue;
+        }
+      }
+    }
+
+    // Hard: back-to-back after Gold (strong); back-to-back anywhere (hard per rules)
+    let btbPenalty = 0;
+    if (kind === 'week' && wi > 0) {
+      const prevEntry = state.schedule[weeks[wi-1].iso];
+      const prevPeople = Object.values(prevEntry.week).filter(Boolean);
+      if (prevPeople.includes(f.initials)) {
+        // Ideal no back-to-back; make this a hard skip
+        continue;
+      }
+    }
+
+    // Soft: 2 in same block
+    let blockPenalty = 0;
+    if (kind === 'week') {
+      for (let j = 0; j < weeks.length; j++) {
+        if (j === wi) continue;
+        if (weeks[j].block !== w.block) continue;
+        const e2 = state.schedule[weeks[j].iso];
+        if (Object.values(e2.week).includes(f.initials)) blockPenalty = 60;
+      }
+    }
+
+    // Goal gap - higher gap = higher priority
+    const t = tallies[f.initials] || {gold:0,obWeek:0,obWeekend:0,bronze:0,bronzeWeekend:0};
+    let goalVal = 0, assignedVal = 0;
+    if (kind === 'week') {
+      if (svc === 'gold') { goalVal = f.goals.gold; assignedVal = t.gold; }
+      else if (svc === 'ob') { goalVal = f.goals.obWeek; assignedVal = t.obWeek; }
+      else { goalVal = f.goals.bronze; assignedVal = t.bronze; }
+    } else {
+      if (svc === 'gold') { goalVal = f.goals.gold; assignedVal = t.gold; } // combined
+      else if (svc === 'ob') { goalVal = f.goals.obWeekend; assignedVal = t.obWeekend; }
+      else { goalVal = f.goals.bronzeWeekend; assignedVal = t.bronzeWeekend; }
+    }
+    // Prefer those under goal; only allow over-goal if fallback pass
+    const isOverGoal = (goalVal > 0 && assignedVal >= goalVal) || goalVal <= 0;
+    if (isOverGoal && !allowOverGoal) continue;
+    // Operative-OB overflow pass: for OB assignments, only faculty with opOBPref may go over goal
+    if (allowOverGoal && overflowMode === 'opOBOnly' && isOverGoal && svc === 'ob' && !f.opOBPref) continue;
+
+    const goalGap = (goalVal||0) - (assignedVal||0);
+
+    // Soft-avoid penalty (weeks only)
+    let softPenalty = 0;
+    if (kind === 'week') {
+      const m = r.softAvoidWeeks.find(x => x.week === weekIso);
+      if (m) softPenalty = 40 * m.priority;
+    }
+
+    // Prefer-to-work bonus
+    let preferBonus = 0;
+    if (r.preferWeeks.includes(weekIso)) preferBonus = 80;
+
+    // Cadence — reward if it's been a while since their last assignment
+    const lastWi = lastWeekIdx[f.initials];
+    let cadenceBonus = 20;
+    if (lastWi !== undefined) {
+      const gap = wi - lastWi;
+      // Target ~6 weeks; bonus peaks around gap=6
+      if (gap >= 6) cadenceBonus = 30;
+      else if (gap >= 4) cadenceBonus = 15;
+      else if (gap >= 3) cadenceBonus = 5;
+      else cadenceBonus = -30; // too soon
+    }
+
+    // Holiday repeat penalty
+    let holidayPenalty = 0;
+    if (isHolidayWk && (holidayHits[f.initials]||0) >= 1) holidayPenalty = 80;
+
+    const score = goalGap * 25 + cadenceBonus + preferBonus - softPenalty - blockPenalty - holidayPenalty;
+    candidates.push({ initials: f.initials, score });
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  // Small randomness among near-ties (±5) so re-runs can produce variety
+  const topScore = candidates[0].score;
+  const nearTop = candidates.filter(c => c.score >= topScore - 5);
+  return nearTop[Math.floor(Math.random() * nearTop.length)].initials;
+}
+
+$('#btn-autofill').addEventListener('click', () => {
+  const hasAny = Object.values(state.schedule).some(e =>
+    Object.values(e.week).some(Boolean) || Object.values(e.weekend).some(Boolean)
+  );
+  let replaceAll = false;
+  if (hasAny) {
+    const choice = prompt('Schedule has existing assignments. Type "empty" to fill only empty cells, or "all" to clear and regenerate everything:', 'empty');
+    if (choice === null) return;
+    if (choice.toLowerCase().startsWith('a')) replaceAll = true;
+    else if (!choice.toLowerCase().startsWith('e')) return;
+  }
+  const { assigned, skipped } = autoFillSchedule({ replaceAll });
+  alert(`Auto-fill done.\nAssigned: ${assigned}\nCells left empty (no valid candidate): ${skipped}\n\nReview the Flags column — some assignments may still have soft flags. Hand-edit any cell.`);
+});
+
+$('#btn-clear-schedule').addEventListener('click', () => {
+  if (!confirm('Clear all schedule assignments? Faculty and requests are preserved.')) return;
+  const weeks = weeksInPeriod();
+  weeks.forEach(w => {
+    state.schedule[w.iso] = { week:{gold:'',bronze:'',ob:''}, weekend:{gold:'',bronze:'',ob:''} };
+  });
+  saveLocal();
+  renderSchedule();
+  renderProgress();
+});
+
+$('#period-start').addEventListener('change', e => {
+  if (!e.target.value) return;
+  state.period.startDate = e.target.value;
+  saveLocal();
+});
+$('#period-weeks').addEventListener('change', e => {
+  const v = parseInt(e.target.value, 10);
+  if (v >= 1 && v <= 52) { state.period.weeks = v; saveLocal(); }
+});
+$('#btn-regen-weeks').addEventListener('click', () => {
+  // Keep existing assignments for weeks that still fall in range; drop others
+  const newWeeks = weeksInPeriod().map(w=>w.iso);
+  const newSched = {};
+  newWeeks.forEach(iso => {
+    newSched[iso] = state.schedule[iso] || { week:{gold:'',bronze:'',ob:''}, weekend:{gold:'',bronze:'',ob:''} };
+  });
+  state.schedule = newSched;
+  saveLocal();
+  renderSchedule();
+});
+
+/* ---------- Rendering: Progress tab ---------- */
+function renderProgress() {
+  const tbody = $('#progress-table tbody');
+  tbody.innerHTML = '';
+  const tallies = tallyAssignments();
+
+  state.faculty.forEach(f => {
+    const t = tallies[f.initials] || {gold:0,obWeek:0,obWeekend:0,bronze:0,bronzeWeekend:0};
+    const row = document.createElement('tr');
+    function cell(label, val, goal) {
+      const pct = goal > 0 ? Math.min(100, (val/goal)*100) : (val > 0 ? 100 : 0);
+      let cls = '';
+      if (goal > 0) {
+        if (val >= goal) cls = 'met';
+        if (val > goal * 1.15) cls = 'over';
+      } else if (val > 0) cls = 'over';
+      const gv = goal > 0 ? goal.toFixed(goal%1?1:0) : '—';
+      return `<td><div class="progress-bar"><div class="fill ${cls}" style="width:${pct}%"></div><div class="label">${val} / ${gv}</div></div></td>`;
+    }
+    const totalWeeks = t.gold + t.obWeek + t.bronze;
+    const totalWknds = t.obWeekend + t.bronzeWeekend;
+    row.innerHTML = `
+      <td><b>${escapeHtml(f.initials)}</b>${f.fullName?'<br><span class="small">'+escapeHtml(f.fullName)+'</span>':''}</td>
+      ${cell('Gold', t.gold, f.goals.gold||0)}
+      ${cell('OB wk', t.obWeek, f.goals.obWeek||0)}
+      ${cell('OB wknd', t.obWeekend, f.goals.obWeekend||0)}
+      ${cell('Bronze wk', t.bronze, f.goals.bronze||0)}
+      ${cell('Bronze wknd', t.bronzeWeekend, f.goals.bronzeWeekend||0)}
+      <td><b>${totalWeeks}</b></td>
+      <td><b>${totalWknds}</b></td>
+    `;
+    tbody.appendChild(row);
+  });
+}
+
+function tallyAssignments() {
+  const t = {};
+  state.faculty.forEach(f => t[f.initials] = {gold:0, obWeek:0, obWeekend:0, bronze:0, bronzeWeekend:0});
+  for (const iso in state.schedule) {
+    const e = state.schedule[iso];
+    // Gold: count once per week. Gold weekend always == Gold week, so don't double-count.
+    if (e.week.gold && t[e.week.gold]) t[e.week.gold].gold++;
+    else if (e.weekend.gold && t[e.weekend.gold]) t[e.weekend.gold].gold++; // edge case: weekend set without week
+    if (e.week.bronze && t[e.week.bronze]) t[e.week.bronze].bronze++;
+    if (e.week.ob && t[e.week.ob]) t[e.week.ob].obWeek++;
+    if (e.weekend.bronze && t[e.weekend.bronze]) t[e.weekend.bronze].bronzeWeekend++;
+    if (e.weekend.ob && t[e.weekend.ob]) t[e.weekend.ob].obWeekend++;
+  }
+  return t;
+}
+
+/* ---------- Data tab handlers ---------- */
+$('#btn-save-json').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const start = state.period.startDate;
+  a.href = url; a.download = `FMS_schedule_${start}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$('#file-load').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const text = await file.text();
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed.version) throw new Error('Invalid file');
+    state = parsed;
+    migrateState();
+    saveLocal();
+    renderFaculty(); renderRequestsTab(); renderSchedule(); renderProgress();
+    alert('Loaded.');
+  } catch(err) { alert('Failed to load: ' + err.message); }
+  e.target.value = '';
+});
+
+$('#btn-reload-local').addEventListener('click', () => {
+  if (loadLocal()) { renderFaculty(); renderRequestsTab(); renderSchedule(); renderProgress(); alert('Reloaded autosave.'); }
+  else alert('No autosave found.');
+});
+
+$('#btn-clear-local').addEventListener('click', () => {
+  if (!confirm('Clear autosave? Your current in-memory state is kept.')) return;
+  localStorage.removeItem(LS_KEY);
+  $('#autosave-indicator').textContent = 'Autosave cleared';
+});
+
+$('#btn-reset-all').addEventListener('click', () => {
+  if (!confirm('Reset to default seed (default faculty roster, no requests)? All current work will be lost.')) return;
+  seedState(); saveLocal();
+  renderFaculty(); renderRequestsTab(); renderSchedule(); renderProgress();
+});
+
+$('#btn-export-csv').addEventListener('click', () => {
+  const weeks = weeksInPeriod();
+  const rows = [[
+    'Block','Week of (Mon)','Gold (M-F)','Bronze (M-F)','OB (M-F)',
+    'Gold wknd','Bronze wknd','OB wknd','Holiday(s)','Flags'
+  ]];
+  weeks.forEach(w => {
+    const e = state.schedule[w.iso] || {week:{},weekend:{}};
+    const hols = weekHolidays(w).map(h=>h.name).join('; ');
+    const f = flagsForWeek(w);
+    const flagTxt = [...f.hard, ...f.soft].join(' | ');
+    rows.push([
+      w.block,
+      fmtISO(w.mon),
+      e.week.gold||'', e.week.bronze||'', e.week.ob||'',
+      e.weekend.gold||'', e.weekend.bronze||'', e.weekend.ob||'',
+      hols, flagTxt
+    ]);
+  });
+  const csv = rows.map(r => r.map(c => {
+    const s = String(c ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `FMS_schedule_${state.period.startDate}.csv`; a.click();
+  URL.revokeObjectURL(url);
+});
+
+$('#btn-export-xlsx').addEventListener('click', async () => {
+  try {
+    // Use xlsx-js-style for cell styling support (fills, borders, fonts)
+    if (!window.XLSX || !window.XLSX.__styleEnabled) {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js';
+        s.onload = res; s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      window.XLSX.__styleEnabled = true;
+    }
+    buildStyledXlsx();
+  } catch(err) {
+    alert('XLSX export failed (check internet). Try CSV export instead.\n\n' + err.message);
+  }
+});
+
+// --- Template-matching styled xlsx export ---
+function buildStyledXlsx() {
+  const weeks = weeksInPeriod();
+  const startD = parseISO(state.period.startDate);
+
+  // Block fill colors rotate to visually separate blocks (matches template cream/green alternation)
+  const BLOCK_FILLS = ['FFF2CC','C6E0B4','DDEBF7','FCE4D6','E2EFDA','FFF2CC'];
+  const HEADER_FILLS = {
+    gold: 'A9D08E',    // green
+    obWeek: 'F8CBAD',  // salmon
+    obWknd: 'F4B084',  // dark salmon
+    bronze: 'AEAAAA',  // gray
+    brnWnd: 'BFBFBF',  // light gray
+  };
+  const thinBorder = {
+    top:    {style:'thin', color:{rgb:'000000'}},
+    bottom: {style:'thin', color:{rgb:'000000'}},
+    left:   {style:'thin', color:{rgb:'000000'}},
+    right:  {style:'thin', color:{rgb:'000000'}},
+  };
+
+  // Build up data as a flat array of {row, col, value, style} entries
+  const cells = [];
+  function setCell(r, c, v, style) { cells.push({r, c, v, s: style}); }
+  const baseFont = { name:'Calibri', sz:11 };
+  const centerAlign = { horizontal:'center', vertical:'center' };
+
+  // === Schedule area (columns A-I = cols 1..9) ===
+  // Row 1: year + weekday names
+  setCell(1, 1, startD.getFullYear(), { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder });
+  const weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  weekdays.forEach((d, i) => setCell(1, 3+i, d, { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:'D9E1F2'}} }));
+
+  let r = 2;
+  // Group weeks into blocks of 4
+  let blockNum = 1;
+  for (let bi = 0; bi < weeks.length; bi += 4) {
+    const block = weeks.slice(bi, bi+4);
+    const blockFill = BLOCK_FILLS[(blockNum-1) % BLOCK_FILLS.length];
+    const blockStart = block[0].mon;
+    const blockEnd = addDays(block[block.length-1].mon, 6);
+
+    for (let wi = 0; wi < block.length; wi++) {
+      const w = block[wi];
+      const e = state.schedule[w.iso] || {week:{gold:'',bronze:'',ob:''},weekend:{gold:'',bronze:'',ob:''}};
+      const wk = e.week, we = e.weekend;
+
+      // Date row (Mon-Sun). On the very first week, show month name in A and year in B.
+      if (bi === 0 && wi === 0) {
+        setCell(r, 1, w.mon.toLocaleString('default', {month:'long'}), { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder });
+        setCell(r, 2, w.mon.getFullYear(), { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder });
+      } else if (wi === 0) {
+        // End-date of previous block shown on this date row of week 1 of NEW block goes in gold row below.
+        // Actually template puts block end date on date-row of week 2. We'll put block start on gold row, end on bronze row below.
+      }
+      for (let d = 0; d < 7; d++) {
+        const dt = addDays(w.mon, d);
+        setCell(r, 3+d, dt, { font:baseFont, alignment:centerAlign, border:thinBorder, numFmt:'m/d/yyyy' });
+      }
+      r++;
+
+      // Gold row (7 days = same person)
+      const goldPerson = wk.gold || we.gold || '';
+      if (wi === 0) setCell(r, 1, 'Block ' + blockNum, { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:blockFill}} });
+      setCell(r, 2, 'Gold', { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:'A9D08E'}} });
+      for (let d = 0; d < 7; d++) setCell(r, 3+d, goldPerson, { font:baseFont, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:blockFill}} });
+      r++;
+
+      // Bronze row: M-F = week person, Sat/Sun = weekend person
+      if (wi === 0) setCell(r, 1, blockStart, { font:baseFont, alignment:centerAlign, border:thinBorder, numFmt:'m/d/yyyy', fill:{patternType:'solid', fgColor:{rgb:blockFill}} });
+      setCell(r, 2, 'Bronze', { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:'AEAAAA'}} });
+      for (let d = 0; d < 7; d++) {
+        const person = (d < 5) ? (wk.bronze||'') : (we.bronze||'');
+        setCell(r, 3+d, person, { font:baseFont, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:blockFill}} });
+      }
+      r++;
+
+      // OB row: M-F = week person, Sat/Sun = weekend person
+      if (wi === 0) setCell(r, 1, 'to', { font:{...baseFont, italic:true}, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:blockFill}} });
+      if (wi === 1) setCell(r-3, 1, blockEnd, { font:baseFont, alignment:centerAlign, border:thinBorder, numFmt:'m/d/yyyy' });
+      setCell(r, 2, 'OB', { font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:'F8CBAD'}} });
+      for (let d = 0; d < 7; d++) {
+        const person = (d < 5) ? (wk.ob||'') : (we.ob||'');
+        setCell(r, 3+d, person, { font:baseFont, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:blockFill}} });
+      }
+      r++;
+    }
+    blockNum++;
+  }
+
+  // === Side goals summary table (columns K..Q = cols 11..17) ===
+  const tallies = tallyAssignments();
+  const sideStartRow = 3;
+  const hdrStyle = (fill) => ({ font:{...baseFont, bold:true}, alignment:centerAlign, border:thinBorder, fill:{patternType:'solid', fgColor:{rgb:fill}} });
+  setCell(sideStartRow,     11, '2nd 6 m', hdrStyle('FFFFFF'));
+  setCell(sideStartRow,     12, 'GOLD',    hdrStyle(HEADER_FILLS.gold));
+  setCell(sideStartRow,     13, 'goal',    hdrStyle(HEADER_FILLS.gold));
+  setCell(sideStartRow,     14, 'OB Week', hdrStyle(HEADER_FILLS.obWeek));
+  setCell(sideStartRow,     15, 'OB Wkend',hdrStyle(HEADER_FILLS.obWknd));
+  setCell(sideStartRow,     16, 'Bronze',  hdrStyle(HEADER_FILLS.bronze));
+  setCell(sideStartRow,     17, 'BRN WND', hdrStyle(HEADER_FILLS.brnWnd));
+
+  state.faculty.forEach((f, i) => {
+    const rr = sideStartRow + 1 + i;
+    const t = tallies[f.initials] || {gold:0,obWeek:0,obWeekend:0,bronze:0,bronzeWeekend:0};
+    const cellStyle = { font:baseFont, alignment:centerAlign, border:thinBorder };
+    const grayStyle = { ...cellStyle, fill:{patternType:'solid', fgColor:{rgb:'BFBFBF'}}, font:{...baseFont, color:{rgb:'808080'}} };
+    setCell(rr, 11, f.initials, { ...cellStyle, font:{...baseFont, bold:true} });
+    // Gold: actual | goal (blank if not gold-eligible)
+    setCell(rr, 12, f.services.gold ? t.gold : '', f.services.gold ? cellStyle : grayStyle);
+    setCell(rr, 13, f.services.gold ? (f.goals.gold||0) : '', f.services.gold ? cellStyle : grayStyle);
+    // OB week / wknd
+    setCell(rr, 14, f.services.ob ? t.obWeek : '', f.services.ob ? cellStyle : grayStyle);
+    setCell(rr, 15, f.services.ob ? t.obWeekend : '', f.services.ob ? cellStyle : grayStyle);
+    // Bronze week / wknd
+    setCell(rr, 16, f.services.bronze ? t.bronze : '', f.services.bronze ? cellStyle : grayStyle);
+    setCell(rr, 17, f.services.bronze ? t.bronzeWeekend : '', f.services.bronze ? cellStyle : grayStyle);
+  });
+
+  // Build the worksheet from cells
+  const ws = {};
+  let maxR = 0, maxC = 0;
+  cells.forEach(({r, c, v, s}) => {
+    const ref = XLSX.utils.encode_cell({r: r-1, c: c-1});
+    let cellObj;
+    if (v instanceof Date) {
+      cellObj = { v, t: 'd' };
+    } else if (typeof v === 'number') {
+      cellObj = { v, t: 'n' };
+    } else if (v === null || v === undefined || v === '') {
+      cellObj = { v: '', t: 's' };
+    } else {
+      cellObj = { v: String(v), t: 's' };
+    }
+    if (s) {
+      cellObj.s = s;
+      if (s.numFmt) cellObj.z = s.numFmt;
+    }
+    ws[ref] = cellObj;
+    if (r > maxR) maxR = r;
+    if (c > maxC) maxC = c;
+  });
+  ws['!ref'] = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:maxR-1, c:maxC-1} });
+  ws['!cols'] = [
+    {wch:12},{wch:8},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:3},
+    {wch:10},{wch:7},{wch:6},{wch:9},{wch:9},{wch:9},{wch:9},
+  ];
+  ws['!rows'] = [];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Schedule');
+
+  // Also add a simple progress sheet
+  const progHeader = ['Faculty','Gold (actual)','Gold goal','OB wk (actual)','OB wk goal','OB wknd (actual)','OB wknd goal','Bronze wk (actual)','Bronze wk goal','Bronze wknd (actual)','Bronze wknd goal'];
+  const progRows = state.faculty.map(f => {
+    const t = tallies[f.initials] || {gold:0,obWeek:0,obWeekend:0,bronze:0,bronzeWeekend:0};
+    return [f.initials, t.gold, f.goals.gold, t.obWeek, f.goals.obWeek, t.obWeekend, f.goals.obWeekend, t.bronze, f.goals.bronze, t.bronzeWeekend, f.goals.bronzeWeekend];
+  });
+  const ws2 = XLSX.utils.aoa_to_sheet([progHeader, ...progRows]);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Progress');
+
+  XLSX.writeFile(wb, `FMS_schedule_${state.period.startDate}.xlsx`);
+}
+
+/* ========================================================================
+   CONFIG — edit these three values once, then the app "just works."
+
+   1. APP_PASSWORD: the password the app will ask for on load. Change this.
+   2. SUPABASE_URL and SUPABASE_ANON_KEY: grab these from Supabase
+      (see SUPABASE_SETUP.md step 4). Until you paste them in, cloud
+      save/load stays hidden but the rest of the app still works offline.
+   ======================================================================== */
+const APP_PASSWORD = 'Wehavethebestresidents!';
+const SUPABASE_URL = 'https://qewochikmwvelbgvyxhd.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFld29jaGlrbXd2ZWxiZ3Z5eGhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NjYyNDQsImV4cCI6MjA5MjQ0MjI0NH0.pKZ0zlamOzgMFa1ilHB98Llmc7cNQ-iPG3TSeGpTjSs';
+
+let supa = null;
+// When you load a cloud schedule, we remember its id so "Save as new version" knows which schedule to append to.
+let currentCloudScheduleId = null;
+let currentCloudScheduleName = null;
+
+function supaConfigured() {
+  return SUPABASE_URL && SUPABASE_URL.startsWith('https://') && !SUPABASE_URL.includes('YOUR-PROJECT-ID')
+      && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes('YOUR-ANON-KEY');
+}
+
+function initSupabase() {
+  if (!supaConfigured()) {
+    const hint = $('#cloud-setup-hint'); if (hint) hint.style.display = 'block';
+    return;
+  }
+  if (!window.supabase) {
+    console.warn('Supabase library not loaded');
+    return;
+  }
+  supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  });
+  // Show the cloud panel now that we have a client
+  const cloudAuth = $('#cloud-auth'); if (cloudAuth) cloudAuth.style.display = '';
+}
+
+/* ---------- Password gate ---------- */
+const PW_SESSION_KEY = 'fms-pw-unlocked-v1';
+
+function showPasswordGate() {
+  const gate = $('#password-gate');
+  gate.style.display = 'flex';
+  const input = $('#pw-input');
+  input.value = '';
+  setTimeout(() => input.focus(), 30);
+}
+
+function hidePasswordGate() {
+  $('#password-gate').style.display = 'none';
+}
+
+function tryPassword() {
+  const input = $('#pw-input');
+  const msg = $('#pw-msg');
+  if (input.value === APP_PASSWORD) {
+    try { sessionStorage.setItem(PW_SESSION_KEY, '1'); } catch(e) {}
+    hidePasswordGate();
+    msg.textContent = '';
+  } else {
+    msg.textContent = 'Incorrect password.';
+    input.value = '';
+    input.focus();
+  }
+}
+
+function isUnlocked() {
+  try { return sessionStorage.getItem(PW_SESSION_KEY) === '1'; } catch(e) { return false; }
+}
+
+function toast(msg, kind) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.style.background = kind === 'error' ? '#c0392b' : kind === 'ok' ? '#1a7a3a' : '#222';
+  el.style.display = 'block';
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3600);
+}
+
+/* ---------- Cloud save/load ---------- */
+async function listCloudSchedules() {
+  const { data, error } = await supa.from('schedules')
+    .select('*, schedule_versions(id, version_num, note, created_at, created_by_email)')
+    .eq('archived', false)
+    .order('updated_at', {ascending: false});
+  if (error) throw error;
+  // Sort versions desc within each schedule
+  (data || []).forEach(s => {
+    if (s.schedule_versions) s.schedule_versions.sort((a,b)=>b.version_num-a.version_num);
+  });
+  return data || [];
+}
+
+async function loadScheduleVersion(versionId, scheduleId, scheduleName) {
+  const { data, error } = await supa.from('schedule_versions')
+    .select('state')
+    .eq('id', versionId)
+    .single();
+  if (error) throw error;
+  if (!data || !data.state) throw new Error('No state in that version');
+  state = data.state;
+  migrateState();
+  saveLocal();
+  currentCloudScheduleId = scheduleId;
+  currentCloudScheduleName = scheduleName;
+  // Re-render everything
+  renderFaculty(); renderRequestsTab(); renderSchedule(); renderProgress(); renderPTOOverview();
+  renderCloudPanel();
+  toast(`Loaded "${scheduleName}"`, 'ok');
+}
+
+async function saveAsNewSchedule() {
+  const name = prompt('Name this schedule (e.g., "Jul-Dec 2026 draft"):', currentCloudScheduleName || '');
+  if (!name) return;
+  try {
+    const { data: sched, error: e1 } = await supa.from('schedules').insert({
+      name
+    }).select().single();
+    if (e1) throw e1;
+    const { error: e2 } = await supa.from('schedule_versions').insert({
+      schedule_id: sched.id,
+      version_num: 1,
+      state,
+      note: 'Initial version',
+    });
+    if (e2) throw e2;
+    currentCloudScheduleId = sched.id;
+    currentCloudScheduleName = sched.name;
+    toast(`Saved "${name}" (v1)`, 'ok');
+    renderCloudPanel();
+  } catch (e) {
+    if ((e.message||'').includes('duplicate key')) toast('A schedule with that name already exists.', 'error');
+    else toast('Save failed: ' + (e.message || e), 'error');
+  }
+}
+
+async function saveNewVersion() {
+  if (!currentCloudScheduleId) {
+    toast('No cloud schedule loaded. Click "Save current as new schedule" first.', 'error');
+    return;
+  }
+  const note = prompt('Optional note for this version (e.g., "After Mark\'s PTO update"):', '') ?? null;
+  try {
+    // Find next version number
+    const { data: latest, error: e1 } = await supa.from('schedule_versions')
+      .select('version_num').eq('schedule_id', currentCloudScheduleId)
+      .order('version_num', {ascending:false}).limit(1);
+    if (e1) throw e1;
+    const nextNum = (latest && latest[0]) ? latest[0].version_num + 1 : 1;
+    const { error: e2 } = await supa.from('schedule_versions').insert({
+      schedule_id: currentCloudScheduleId,
+      version_num: nextNum,
+      state,
+      note: note || null,
+    });
+    if (e2) throw e2;
+    // Touch schedules.updated_at
+    await supa.from('schedules').update({ name: currentCloudScheduleName }).eq('id', currentCloudScheduleId);
+    toast(`Saved v${nextNum} of "${currentCloudScheduleName}"`, 'ok');
+    renderCloudPanel();
+  } catch (e) {
+    toast('Save failed: ' + (e.message || e), 'error');
+  }
+}
+
+async function renameCloudSchedule(id, oldName) {
+  const name = prompt('New name:', oldName);
+  if (!name || name === oldName) return;
+  try {
+    const { error } = await supa.from('schedules').update({name}).eq('id', id);
+    if (error) throw error;
+    if (currentCloudScheduleId === id) currentCloudScheduleName = name;
+    toast('Renamed.', 'ok');
+    renderCloudPanel();
+  } catch (e) {
+    toast('Rename failed: ' + (e.message || e), 'error');
+  }
+}
+
+async function deleteCloudSchedule(id, name) {
+  if (!confirm(`Delete schedule "${name}" and ALL its versions? This cannot be undone.`)) return;
+  try {
+    const { error } = await supa.from('schedules').delete().eq('id', id);
+    if (error) throw error;
+    if (currentCloudScheduleId === id) { currentCloudScheduleId = null; currentCloudScheduleName = null; }
+    toast('Deleted.', 'ok');
+    renderCloudPanel();
+  } catch (e) {
+    toast('Delete failed: ' + (e.message || e), 'error');
+  }
+}
+
+async function deleteCloudVersion(versionId, scheduleName, versionNum) {
+  if (!confirm(`Delete version ${versionNum} of "${scheduleName}"?`)) return;
+  try {
+    const { error } = await supa.from('schedule_versions').delete().eq('id', versionId);
+    if (error) throw error;
+    toast('Version deleted.', 'ok');
+    renderCloudPanel();
+  } catch (e) {
+    toast('Delete failed: ' + (e.message || e), 'error');
+  }
+}
+
+async function renderCloudPanel() {
+  if (!supaConfigured()) return;
+  const cloudAuth = $('#cloud-auth'); if (cloudAuth) cloudAuth.style.display = '';
+  // current-loaded label
+  const lbl = $('#cloud-current-label');
+  const saveVerBtn = $('#btn-cloud-save-version');
+  if (currentCloudScheduleId && currentCloudScheduleName) {
+    lbl.innerHTML = `Currently loaded: <b>${escapeHtml(currentCloudScheduleName)}</b>`;
+    if (saveVerBtn) saveVerBtn.disabled = false;
+  } else {
+    lbl.textContent = 'No cloud schedule loaded — your work is in-browser only.';
+    if (saveVerBtn) saveVerBtn.disabled = true;
+  }
+  const listEl = $('#cloud-schedules-list');
+  listEl.innerHTML = '<p class="small">Loading…</p>';
+  try {
+    const scheds = await listCloudSchedules();
+    if (!scheds.length) {
+      listEl.innerHTML = '<p class="small">No cloud schedules yet. Click <b>Save current as new schedule</b> above to create your first one.</p>';
+      return;
+    }
+    const rows = scheds.map(s => {
+      const vers = s.schedule_versions || [];
+      const latest = vers[0];
+      const isCurrent = (s.id === currentCloudScheduleId);
+      const verRows = vers.map(v => `
+        <tr class="ver-row">
+          <td style="padding-left:28px">v${v.version_num}${v.note ? ' — ' + escapeHtml(v.note) : ''}</td>
+          <td>${new Date(v.created_at).toLocaleString()}</td>
+          <td>${escapeHtml(v.created_by_email||'')}</td>
+          <td class="row-actions">
+            <button class="btn small ghost" data-act="load-ver" data-vid="${v.id}" data-sid="${s.id}" data-sname="${escapeHtml(s.name)}">Load</button>
+            <button class="btn small danger" data-act="del-ver" data-vid="${v.id}" data-sname="${escapeHtml(s.name)}" data-vnum="${v.version_num}">×</button>
+          </td>
+        </tr>
+      `).join('');
+      return `
+        <tr${isCurrent ? ' style="background:#e6eefc"' : ''}>
+          <td><b>${escapeHtml(s.name)}</b>${isCurrent ? ' <span class="small" style="color:#1f6feb">(loaded)</span>' : ''}</td>
+          <td>${vers.length} version${vers.length===1?'':'s'}</td>
+          <td>${latest ? new Date(latest.created_at).toLocaleDateString() : '—'}</td>
+          <td class="row-actions">
+            <button class="btn small" data-act="load-latest" data-sid="${s.id}" data-sname="${escapeHtml(s.name)}" ${latest?'':'disabled'}>Load latest</button>
+            <button class="btn small ghost" data-act="toggle-versions" data-sid="${s.id}">Versions</button>
+            <button class="btn small ghost" data-act="rename" data-sid="${s.id}" data-sname="${escapeHtml(s.name)}">Rename</button>
+            <button class="btn small danger" data-act="delete" data-sid="${s.id}" data-sname="${escapeHtml(s.name)}">Delete</button>
+          </td>
+        </tr>
+        <tbody id="vers-${s.id}" style="display:none">
+          ${verRows || '<tr class="ver-row"><td colspan="4" style="padding-left:28px" class="small">No versions yet.</td></tr>'}
+        </tbody>
+      `;
+    }).join('');
+    listEl.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Versions</th>
+            <th>Last saved</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+    // Wire up actions (event delegation)
+    listEl.querySelectorAll('button[data-act]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const act = btn.dataset.act;
+        if (act === 'load-latest') {
+          // Find the latest version id for this schedule
+          const sched = scheds.find(s => s.id === btn.dataset.sid);
+          if (!sched || !sched.schedule_versions.length) return;
+          const latestV = sched.schedule_versions[0];
+          if (!confirm(`Load "${btn.dataset.sname}" (v${latestV.version_num})? This replaces your current in-browser work.`)) return;
+          await loadScheduleVersion(latestV.id, btn.dataset.sid, btn.dataset.sname);
+        } else if (act === 'load-ver') {
+          if (!confirm('Load this version? Replaces your current in-browser work.')) return;
+          await loadScheduleVersion(btn.dataset.vid, btn.dataset.sid, btn.dataset.sname);
+        } else if (act === 'toggle-versions') {
+          const el = $('#vers-' + btn.dataset.sid);
+          if (el) el.style.display = (el.style.display === 'none') ? '' : 'none';
+        } else if (act === 'rename') {
+          await renameCloudSchedule(btn.dataset.sid, btn.dataset.sname);
+        } else if (act === 'delete') {
+          await deleteCloudSchedule(btn.dataset.sid, btn.dataset.sname);
+        } else if (act === 'del-ver') {
+          await deleteCloudVersion(btn.dataset.vid, btn.dataset.sname, btn.dataset.vnum);
+        }
+      });
+    });
+  } catch (e) {
+    listEl.innerHTML = `<p class="small" style="color:var(--hard)">Failed to load schedules: ${escapeHtml(e.message||String(e))}</p>`;
+  }
+}
+
+/* ---------- PTO Overview tab ---------- */
+function renderPTOOverview() {
+  const weeks = weeksInPeriod();
+
+  // --- heatmap: week boxes showing hard-block counts ---
+  const heatmap = $('#pto-heatmap');
+  if (heatmap) {
+    heatmap.innerHTML = weeks.map(w => {
+      const items = requestsForWeek(w);
+      const hardCount = items.filter(i => i.kind === 'hard').length;
+      const softCount = items.filter(i => i.kind === 'soft').length;
+      const preferCount = items.filter(i => i.kind === 'prefer').length;
+      let lvl = 0;
+      if (hardCount >= 4) lvl = 3;
+      else if (hardCount >= 2) lvl = 2;
+      else if (hardCount >= 1) lvl = 1;
+      const title = `Week of ${fmtLong(w.mon)} (Block ${w.block})\n`
+        + (hardCount ? `${hardCount} hard block${hardCount===1?'':'s'}\n` : '')
+        + (softCount ? `${softCount} soft avoid${softCount===1?'':'s'}\n` : '')
+        + (preferCount ? `${preferCount} prefer-to-work\n` : '')
+        + (!items.length ? 'No requests' : '');
+      return `<div class="pto-week-box lvl-${lvl}" title="${escapeHtml(title)}">
+        <span class="wlbl">Blk ${w.block}</span>
+        <span class="wlbl">${fmtShort(w.mon)}</span>
+        <span class="wcount">${hardCount || '·'}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // --- by faculty ---
+  const byFac = $('#pto-by-faculty');
+  if (byFac) {
+    const rows = state.faculty.map(f => {
+      const r = state.requests[f.initials] || { hardBlockWeeks:[], hardBlockWeekends:[], softAvoidWeeks:[], preferWeeks:[] };
+      const hardW = (r.hardBlockWeeks || []).slice().sort();
+      const hardWE = (r.hardBlockWeekends || []).slice().sort();
+      const softW = (r.softAvoidWeeks || []).slice().sort((a,b)=>a.week.localeCompare(b.week));
+      const prefW = (r.preferWeeks || []).slice().sort();
+      const total = hardW.length + hardWE.length + softW.length + prefW.length;
+      const fmtWk = iso => {
+        const w = weeks.find(x => x.iso === iso);
+        return w ? fmtShort(w.mon) : iso;
+      };
+      const fmtWE = iso => {
+        const w = weeks.find(x => fmtISO(x.sat) === iso);
+        return w ? fmtShort(w.sat) + ' wknd' : iso;
+      };
+      if (total === 0) {
+        return `<div class="pto-fac-block empty"><span class="pto-fac-name">${escapeHtml(f.initials)}</span> <span class="small">no requests</span></div>`;
+      }
+      const chips = [
+        ...hardW.map(iso => `<span class="pto-chip hard">off week of ${fmtWk(iso)}</span>`),
+        ...hardWE.map(iso => `<span class="pto-chip hard">off ${fmtWE(iso)}</span>`),
+        ...softW.map(x => `<span class="pto-chip soft">avoid ${fmtWk(x.week)} (P${x.priority})</span>`),
+        ...prefW.map(iso => `<span class="pto-chip prefer">wants ${fmtWk(iso)}</span>`),
+      ].join('');
+      return `<div class="pto-fac-block">
+        <span class="pto-fac-name">${escapeHtml(f.initials)}</span> ${chips}
+      </div>`;
+    }).join('');
+    byFac.innerHTML = rows || '<p class="small">No faculty yet.</p>';
+  }
+
+  // --- by week ---
+  const tbody = $('#pto-by-week-table tbody');
+  if (tbody) {
+    tbody.innerHTML = weeks.map(w => {
+      const items = requestsForWeek(w);
+      const hard = items.filter(i => i.kind === 'hard').map(i => `<span class="pto-chip hard">${escapeHtml(i.text)}</span>`).join('') || '<span class="small" style="color:#aaa">—</span>';
+      const soft = items.filter(i => i.kind === 'soft').map(i => `<span class="pto-chip soft">${escapeHtml(i.text)}</span>`).join('') || '<span class="small" style="color:#aaa">—</span>';
+      const prefer = items.filter(i => i.kind === 'prefer').map(i => `<span class="pto-chip prefer">${escapeHtml(i.text)}</span>`).join('') || '<span class="small" style="color:#aaa">—</span>';
+      const hols = weekHolidays(w).map(h=>h.name).join(', ');
+      return `<tr>
+        <td class="center">${w.block}</td>
+        <td><div style="font-weight:600">${fmtShort(w.mon)}</div>${hols ? `<div class="holiday-note">★ ${escapeHtml(hols)}</div>` : ''}<div class="small">${w.iso}</div></td>
+        <td>${hard}</td>
+        <td>${soft}</td>
+        <td>${prefer}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+
+function exportPTOCsv() {
+  const weeks = weeksInPeriod();
+  const rows = [['Block','Week of','Faculty','Kind','Detail']];
+  weeks.forEach(w => {
+    const items = requestsForWeek(w);
+    items.forEach(i => {
+      rows.push([w.block, fmtISO(w.mon), i.init, i.kind, i.text]);
+    });
+  });
+  const csv = rows.map(r => r.map(c => {
+    const s = String(c ?? '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `FMS_pto_overview_${state.period.startDate}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------- Boot ---------- */
+function boot() {
+  if (!loadLocal()) seedState();
+  // Bind top-level nav
+  $$('header nav button').forEach(b => {
+    b.addEventListener('click', () => activateTab(b.dataset.tab));
+  });
+  // Password gate buttons
+  $('#btn-pw-go').addEventListener('click', tryPassword);
+  $('#pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') tryPassword(); });
+  // Cloud buttons
+  $('#btn-cloud-save-new').addEventListener('click', saveAsNewSchedule);
+  $('#btn-cloud-save-version').addEventListener('click', saveNewVersion);
+  $('#btn-cloud-refresh').addEventListener('click', renderCloudPanel);
+  // PTO overview buttons
+  $('#btn-pto-print').addEventListener('click', () => window.print());
+  $('#btn-pto-export-csv').addEventListener('click', exportPTOCsv);
+  activateTab('faculty');
+  saveLocal();
+  initSupabase();
+  // Password gate: show only if not already unlocked this session
+  if (!isUnlocked()) showPasswordGate();
+}
+boot();
+</script>
+</body>
+</html>
