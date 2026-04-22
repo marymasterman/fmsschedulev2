@@ -64,16 +64,18 @@
   }
   td input[type=number] { width: 70px; }
   td.center { text-align: center; }
-  button.btn {
+  .btn {
     background: #1f6feb; color: #fff; border: none; padding: 7px 14px;
     border-radius: 4px; cursor: pointer; font-size: 13px;
+    display: inline-block; text-align: center; line-height: 1.2;
+    text-decoration: none; font-family: inherit;
   }
-  button.btn:hover { background: #1858c4; }
-  button.btn.ghost { background: #fff; color: #1f6feb; border: 1px solid #1f6feb; }
-  button.btn.ghost:hover { background: #e6eefc; }
-  button.btn.danger { background: #c0392b; }
-  button.btn.danger:hover { background: #9e2e22; }
-  button.btn.small { padding: 4px 8px; font-size: 12px; }
+  .btn:hover { background: #1858c4; }
+  .btn.ghost { background: #fff; color: #1f6feb; border: 1px solid #1f6feb; }
+  .btn.ghost:hover { background: #e6eefc; }
+  .btn.danger { background: #c0392b; color: #fff; border: none; }
+  .btn.danger:hover { background: #9e2e22; }
+  .btn.small { padding: 4px 8px; font-size: 12px; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
   .row > * { flex: 1 1 auto; }
   .toolbar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
@@ -111,9 +113,12 @@
     margin: 2px; font-size: 12px;
   }
   .req-list li button {
-    background: none; border: none; color: #888; cursor: pointer; font-size: 14px; padding: 0;
+    background: #c0392b; border: none; color: #fff; cursor: pointer;
+    font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 3px;
+    margin-left: 4px; line-height: 1.3;
   }
-  .req-list li button:hover { color: var(--hard); }
+  .req-list li button:hover { background: #9e2e22; }
+  .req-list li button::before { content: 'Remove '; }
   .req-list li.hard { background: #fbe2df; color: var(--hard); }
   .req-list li.soft { background: #fcead5; color: var(--soft); }
   .req-list li.prefer { background: #d5f0dc; color: var(--ok); }
@@ -1946,7 +1951,7 @@ function toast(msg, kind) {
 /* ---------- Cloud save/load ---------- */
 async function listCloudSchedules() {
   const { data, error } = await supa.from('schedules')
-    .select('*, schedule_versions(id, version_num, note, created_at, created_by_email)')
+    .select('*, schedule_versions(id, version_num, note, created_at)')
     .eq('archived', false)
     .order('updated_at', {ascending: false});
   if (error) throw error;
@@ -2097,10 +2102,9 @@ async function renderCloudPanel() {
         <tr class="ver-row">
           <td style="padding-left:28px">v${v.version_num}${v.note ? ' — ' + escapeHtml(v.note) : ''}</td>
           <td>${new Date(v.created_at).toLocaleString()}</td>
-          <td>${escapeHtml(v.created_by_email||'')}</td>
           <td class="row-actions">
             <button class="btn small ghost" data-act="load-ver" data-vid="${v.id}" data-sid="${s.id}" data-sname="${escapeHtml(s.name)}">Load</button>
-            <button class="btn small danger" data-act="del-ver" data-vid="${v.id}" data-sname="${escapeHtml(s.name)}" data-vnum="${v.version_num}">×</button>
+            <button class="btn small danger" data-act="del-ver" data-vid="${v.id}" data-sname="${escapeHtml(s.name)}" data-vnum="${v.version_num}">Delete</button>
           </td>
         </tr>
       `).join('');
@@ -2117,7 +2121,7 @@ async function renderCloudPanel() {
           </td>
         </tr>
         <tbody id="vers-${s.id}" style="display:none">
-          ${verRows || '<tr class="ver-row"><td colspan="4" style="padding-left:28px" class="small">No versions yet.</td></tr>'}
+          ${verRows || '<tr class="ver-row"><td colspan="3" style="padding-left:28px" class="small">No versions yet.</td></tr>'}
         </tbody>
       `;
     }).join('');
