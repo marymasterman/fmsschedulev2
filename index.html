@@ -358,11 +358,11 @@
     <button class="btn danger" id="btn-clear-schedule">Clear schedule</button>
     <span class="small" style="margin-left:auto">★ = includes holiday · red outline = hard violation · orange = soft violation</span>
   </div>
-  <p class="small">Auto-fill fills empty cells with a greedy best-fit that honors all hard rules (eligibility, hard blocks, back-to-back, OB+Bronze, solo weekends) and scores soft preferences. Hand-edit any cell afterward — violations will flag live. Run it more than once to try different fills; clear first to start over.</p>
+  <p class="small">Auto-fill fills empty cells with a greedy best-fit that honors all hard rules (eligibility, hard blocks, 3-week inpatient gap, OB+Bronze, solo weekends) and scores soft preferences. Hand-edit any cell afterward — violations will flag live. Run it more than once to try different fills; clear first to start over.</p>
   <div id="forced-conflicts-panel"></div>
   <div class="legend-row">
     <b>Flags legend:</b>
-    <span class="flag-pill hard">!</span> hard-rule violation (eligibility, hard-blocked PTO, back-to-back, etc.) ·
+    <span class="flag-pill hard">!</span> hard-rule violation (eligibility, hard-blocked PTO, 3-week inpatient gap, etc.) ·
     <span class="flag-pill soft">~</span> soft preference flag (soft-avoid, cadence) ·
     <span class="flag-pill soft">wknd ★</span> weekend includes a holiday. Hover any pill for details.
   </div>
@@ -373,7 +373,7 @@
       <li><b>Gold weekend is always the same person as Gold week</b> (no separate Gold weekend assignment).</li>
       <li><b>OB and Bronze weekends prefer the same person who's on that service that week</b> — only fall back to someone else if there's a hard-block weekend, weekend combo-rule violation, or the global OB+Bronze weekend exclusion.</li>
       <li>Hard-block week/weekend requests are violations if assigned.</li>
-      <li>No back-to-back inpatient weeks.</li>
+      <li>Prefer 3 weeks off inpatient (Gold, Bronze, OB — week or weekend) between any two inpatient assignments. Auto-fill tries 3 weeks first, then falls back to 2 weeks, then fills anyway. 2-week gaps show as orange (soft) flags; less than 2 weeks shows as red (hard) flags so you can see where the fallback kicked in.</li>
       <li>Same person cannot do two services in the same week.</li>
       <li>OB and Bronze cannot be covered by one person on the same weekend.</li>
       <li>Faculty weekend-combo rule must be honored (e.g., "solo only" can't cover two services on one weekend).</li>
@@ -803,35 +803,48 @@ function forcedConflicts(weeks) {
 }
 
 function crossWeekFlags(weeks) {
-  // Return map of iso -> extra soft/hard notes based on adjacent weeks
+  // Return map of iso -> extra soft/hard notes based on adjacent weeks.
+  // Ideal rule: 3 weeks off inpatient (Gold/Bronze/OB — week OR weekend) between
+  // any two inpatient assignments. So if someone is on inpatient in week N, the
+  // earliest they should return is week N+4.
+  // Severity:
+  //   back = 1 or 2 (0-1 weeks in between) → HARD violation
+  //   back = 3      (2 weeks in between)   → SOFT flag (acceptable fallback)
+  const peopleAt = w => {
+    const e = state.schedule[w.iso];
+    if (!e) return [];
+    return [...Object.values(e.week), ...Object.values(e.weekend)].filter(Boolean);
+  };
   const extras = {};
   for (let i = 0; i < weeks.length; i++) {
     const w = weeks[i];
-    const prev = weeks[i-1];
-    if (!prev) continue;
     const entry = state.schedule[w.iso];
-    const prevEntry = state.schedule[prev.iso];
-    if (!entry || !prevEntry) continue;
+    if (!entry) continue;
+    const thisPeople = new Set(peopleAt(w));
+    if (!thisPeople.size) continue;
 
-    // Back-to-back inpatient (same person on any service this week and last week)
-    const thisWk = Object.values(entry.week).filter(Boolean);
-    const prevWk = Object.values(prevEntry.week).filter(Boolean);
-    for (const p of prevWk) {
-      if (thisWk.includes(p)) {
-        (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]}).hard.push(
-          `${p}: back-to-back inpatient (prev week)`
-        );
+    for (let back = 1; back <= 3; back++) {
+      const prev = weeks[i-back];
+      if (!prev) continue;
+      const prevPeople = new Set(peopleAt(prev));
+      for (const p of prevPeople) {
+        if (!thisPeople.has(p)) continue;
+        const gapWeeks = back - 1; // weeks completely off in between
+        const bucket = (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]});
+        if (back <= 2) {
+          const gapNote = back === 1 ? 'last week' : '2 weeks ago';
+          bucket.hard.push(`${p}: needs 3 weeks off inpatient (was on ${gapNote}, only ${gapWeeks} week${gapWeeks===1?'':'s'} between)`);
+        } else {
+          bucket.soft.push(`${p}: only 2 weeks between inpatient assignments (3 preferred)`);
+        }
       }
     }
-    // Post-Gold: whoever did Gold last week should not do any inpatient this week (hard per rules)
-    if (prevEntry.week.gold) {
-      const g = prevEntry.week.gold;
-      if (thisWk.includes(g)) {
-        // already flagged as back-to-back, upgrade note
-        (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]}).hard.push(
-          `${g}: post-Gold back-to-back (strongly discouraged)`
-        );
-      }
+    // Post-Gold: additional emphasis if last week's Gold is on inpatient this week
+    const prevEntry = i > 0 ? state.schedule[weeks[i-1].iso] : null;
+    if (prevEntry && prevEntry.week.gold && thisPeople.has(prevEntry.week.gold)) {
+      (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]}).hard.push(
+        `${prevEntry.week.gold}: post-Gold back-to-back (strongly discouraged)`
+      );
     }
   }
 
@@ -1326,8 +1339,9 @@ function autoFillSchedule(options = {}) {
 
   let assigned = 0, skipped = 0;
 
-  function tryFill(allowOverGoal, overflowMode, svcFilter) {
+  function tryFill(allowOverGoal, overflowMode, svcFilter, minGap = 3) {
     // svcFilter: optional — restrict filling to these services only (e.g., ['ob'])
+    // minGap: 3 (ideal) | 2 (relaxed) | 0 (no gap restriction, last-resort)
     for (let wi = 0; wi < weeks.length; wi++) {
       const w = weeks[wi];
       const entry = state.schedule[w.iso];
@@ -1335,7 +1349,7 @@ function autoFillSchedule(options = {}) {
       for (const svc of ['gold','ob','bronze']) {
         if (svcFilter && !svcFilter.includes(svc)) continue;
         if (entry.week[svc]) continue;
-        const pick = pickBestFaculty(svc, w, wi, 'week', entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode);
+        const pick = pickBestFaculty(svc, w, wi, 'week', entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode, minGap);
         if (pick) { entry.week[svc] = pick; lastWeekIdx[pick] = wi; assigned++; }
       }
       // Gold weekend ALWAYS = Gold week (rule: Gold weekends pair with Gold weeks)
@@ -1353,7 +1367,7 @@ function autoFillSchedule(options = {}) {
           assigned++;
           continue;
         }
-        const pick = pickBestFaculty(svc, w, wi, 'weekend', entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode);
+        const pick = pickBestFaculty(svc, w, wi, 'weekend', entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode, minGap);
         if (pick) {
           entry.weekend[svc] = pick;
           if (weekHolidays(w).length > 0 || weekendHasHoliday(w)) {
@@ -1365,12 +1379,17 @@ function autoFillSchedule(options = {}) {
     }
   }
 
-  // Pass 1: strict (under goal only)
-  tryFill(false);
-  // Pass 2: OB overflow — only faculty marked opOBPref may exceed goal for OB
-  tryFill(true, 'opOBOnly', ['ob']);
-  // Pass 3: allow going over goal to fill remaining cells (all services, anyone)
-  tryFill(true, 'any');
+  // Pass 1: strict (under goal, ideal 3-week gap)
+  tryFill(false, undefined, undefined, 3);
+  // Pass 2: strict + relaxed 2-week gap (still under goal)
+  tryFill(false, undefined, undefined, 2);
+  // Pass 3: OB overflow — opOBPref only, 2-week gap
+  tryFill(true, 'opOBOnly', ['ob'], 2);
+  // Pass 4: allow over goal, 2-week gap
+  tryFill(true, 'any', undefined, 2);
+  // Pass 5: last resort — no gap restriction. Fills anything still empty.
+  // Violations will show as red flags on the schedule so you can see where.
+  tryFill(true, 'any', undefined, 0);
 
   // Count remaining empty
   for (const w of weeks) {
@@ -1387,10 +1406,12 @@ function autoFillSchedule(options = {}) {
   return { assigned, skipped };
 }
 
-function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode) {
+function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode, minGap = 3) {
   // overflowMode (optional):
   //   undefined/'any' — default; anyone may go over goal when allowOverGoal is true
   //   'opOBOnly'       — only faculty with opOBPref=true may be picked over goal (used for OB overflow pass)
+  // minGap: how many weeks off before this person can be picked again for inpatient.
+  //   3 = ideal, 2 = relaxed fallback, 0 = no restriction (last-resort pass)
   const eligible = state.faculty.filter(f => f.services[svc]);
   const weekIso = w.iso;
   const satIso = fmtISO(w.sat);
@@ -1434,15 +1455,26 @@ function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHit
       }
     }
 
-    // Hard: back-to-back after Gold (strong); back-to-back anywhere (hard per rules)
+    // Gap rule: prefer 3 weeks off between inpatient assignments (week OR weekend).
+    // `minGap` controls how strict this pass is:
+    //   3 → ideal (skip anyone on inpatient in past 3 weeks)
+    //   2 → relaxed fallback (skip anyone on inpatient in past 2 weeks)
+    //   0 → no gap restriction (last-resort fill; will flag on the schedule)
     let btbPenalty = 0;
-    if (kind === 'week' && wi > 0) {
-      const prevEntry = state.schedule[weeks[wi-1].iso];
-      const prevPeople = Object.values(prevEntry.week).filter(Boolean);
-      if (prevPeople.includes(f.initials)) {
-        // Ideal no back-to-back; make this a hard skip
-        continue;
+    if (minGap > 0) {
+      let tooRecent = false;
+      for (let back = 1; back <= minGap; back++) {
+        const prev = weeks[wi - back];
+        if (!prev) continue;
+        const prevEntry = state.schedule[prev.iso];
+        if (!prevEntry) continue;
+        const prevPeople = [
+          ...Object.values(prevEntry.week),
+          ...Object.values(prevEntry.weekend),
+        ].filter(Boolean);
+        if (prevPeople.includes(f.initials)) { tooRecent = true; break; }
       }
+      if (tooRecent) continue;
     }
 
     // Soft: 2 in same block
