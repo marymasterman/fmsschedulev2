@@ -223,11 +223,11 @@
   <h1>FMS Inpatient Scheduler</h1>
   <span class="sub">6-month scheduling tool · Gold · Bronze · OB</span>
   <nav>
-    <button data-tab="faculty" class="active">Faculty</button>
+    <button data-tab="schedule" class="active">Schedule</button>
     <button data-tab="requests">Requests</button>
     <button data-tab="pto">PTO Overview</button>
-    <button data-tab="schedule">Schedule</button>
     <button data-tab="progress">Progress</button>
+    <button data-tab="faculty">Faculty</button>
     <button data-tab="data">Data &amp; Cloud</button>
   </nav>
 </header>
@@ -255,7 +255,7 @@
 </div>
 
 <!-- ================== FACULTY TAB ================== -->
-<section id="tab-faculty" class="tab active">
+<section id="tab-faculty" class="tab">
   <h2>Faculty roster &amp; goals</h2>
   <p class="help">Add or edit faculty here. Check which services each person does, set their goals for this 6-month period, and choose their weekend-combination rule.</p>
   <details class="rules">
@@ -354,7 +354,7 @@
 </section>
 
 <!-- ================== SCHEDULE TAB ================== -->
-<section id="tab-schedule" class="tab">
+<section id="tab-schedule" class="tab active">
   <h2>Schedule — <span id="period-label"></span></h2>
   <div class="toolbar">
     <button class="btn" id="btn-jump-current" title="Set the schedule to the current default period">Jump to current period</button>
@@ -2542,7 +2542,7 @@ function boot() {
     toast('Imported blocks cleared.', 'ok');
   });
   renderNIBlocksPreview();
-  activateTab('faculty');
+  activateTab('schedule');
   saveLocal();
   initSupabase();
   // Password gate: show only if not already unlocked this session
