@@ -358,11 +358,11 @@
     <button class="btn danger" id="btn-clear-schedule">Clear schedule</button>
     <span class="small" style="margin-left:auto">★ = includes holiday · red outline = hard violation · orange = soft violation</span>
   </div>
-  <p class="small">Auto-fill fills empty cells with a greedy best-fit that honors all hard rules (eligibility, hard blocks, 3-week inpatient gap, OB+Bronze, solo weekends) and scores soft preferences. Hand-edit any cell afterward — violations will flag live. Run it more than once to try different fills; clear first to start over.</p>
+  <p class="small">Auto-fill fills empty cells with a greedy best-fit that honors all hard rules (eligibility, hard blocks, 2-week inpatient gap preferred, OB+Bronze, solo weekends) and scores soft preferences. Hand-edit any cell afterward — violations will flag live. Run it more than once to try different fills; clear first to start over.</p>
   <div id="forced-conflicts-panel"></div>
   <div class="legend-row">
     <b>Flags legend:</b>
-    <span class="flag-pill hard">!</span> hard-rule violation (eligibility, hard-blocked PTO, 3-week inpatient gap, etc.) ·
+    <span class="flag-pill hard">!</span> hard-rule violation (eligibility, hard-blocked PTO, back-to-back inpatient, etc.) ·
     <span class="flag-pill soft">~</span> soft preference flag (soft-avoid, cadence) ·
     <span class="flag-pill soft">wknd ★</span> weekend includes a holiday. Hover any pill for details.
   </div>
@@ -373,7 +373,7 @@
       <li><b>Gold weekend is always the same person as Gold week</b> (no separate Gold weekend assignment).</li>
       <li><b>OB and Bronze weekends prefer the same person who's on that service that week</b> — only fall back to someone else if there's a hard-block weekend, weekend combo-rule violation, or the global OB+Bronze weekend exclusion.</li>
       <li>Hard-block week/weekend requests are violations if assigned.</li>
-      <li>Prefer 3 weeks off inpatient (Gold, Bronze, OB — week or weekend) between any two inpatient assignments. Auto-fill tries 3 weeks first, then falls back to 2 weeks, then fills anyway. 2-week gaps show as orange (soft) flags; less than 2 weeks shows as red (hard) flags so you can see where the fallback kicked in.</li>
+      <li>Prefer at least 2 weeks off inpatient (Gold, Bronze, OB — week or weekend) between any two inpatient assignments (every-3-weeks cadence). Auto-fill tries this first, then falls back to "no back-to-back", then fills anyway. 1-week gaps show as orange (soft) flags; back-to-back shows as red (hard) flags. <b>Exception:</b> GJE routinely works every 2 weeks (1 week off between) — not flagged for him.</li>
       <li>Same person cannot do two services in the same week.</li>
       <li>OB and Bronze cannot be covered by one person on the same weekend.</li>
       <li>Faculty weekend-combo rule must be honored (e.g., "solo only" can't cover two services on one weekend).</li>
@@ -509,7 +509,6 @@ const SEED_FACULTY = [
   // weekendRule options: 'solo' (default) or 'goldObOk'
   { initials:'AFM', services:{gold:true,bronze:true,ob:false}, goals:{gold:2.9,obWeek:0,obWeekend:0,bronze:2,bronzeWeekend:2}, weekendRule:'solo', notes:'' },
   { initials:'AMP', services:{gold:true,bronze:true,ob:true}, goals:{gold:2.9,obWeek:3,obWeekend:4,bronze:2,bronzeWeekend:2}, weekendRule:'goldObOk', notes:'' },
-  { initials:'BSC', services:{gold:false,bronze:true,ob:false}, goals:{gold:0,obWeek:0,obWeekend:0,bronze:3,bronzeWeekend:3}, weekendRule:'solo', notes:'' },
   { initials:'CDO', services:{gold:true,bronze:true,ob:false}, goals:{gold:2,obWeek:0,obWeekend:0,bronze:1,bronzeWeekend:2}, weekendRule:'solo', notes:'' },
   { initials:'GJE', services:{gold:false,bronze:true,ob:false}, goals:{gold:0,obWeek:0,obWeekend:0,bronze:13,bronzeWeekend:6}, weekendRule:'solo', notes:'' },
   { initials:'JDH', services:{gold:true,bronze:true,ob:true}, goals:{gold:2.9,obWeek:1,obWeekend:1,bronze:1,bronzeWeekend:2}, weekendRule:'goldObOk', notes:'' },
@@ -527,7 +526,7 @@ const SEED_FACULTY = [
 
 const SEED_REQUESTS = {};
 
-const DEFAULT_PERIOD = { startDate: '2026-07-06', weeks: 26 };
+const DEFAULT_PERIOD = { startDate: '2027-01-11', weeks: 52 };
 
 // US holidays falling in Jul-Dec 2026 + Jan 1 2027. For "don't repeat holiday" rule.
 // Dates are Saturdays (for weekends) and Mondays (for weeks). We also mark any week
@@ -601,15 +600,49 @@ function migrateState() {
   SEED_FACULTY.forEach(f => { seedByInit[f.initials] = f; });
   state.faculty.forEach(f => {
     if (f.opOBPref === undefined) {
-      // Inherit from seed if the faculty name matches; otherwise default to false.
       const seed = seedByInit[f.initials];
       f.opOBPref = !!(seed && seed.opOBPref);
     }
   });
+  // Migrate preferWeeks: old entries were ISO strings; new entries are {week, services[]}.
+  // Empty services array means "any service" (backward-compatible behavior).
+  if (state.requests) {
+    Object.values(state.requests).forEach(r => {
+      if (r && Array.isArray(r.preferWeeks)) {
+        r.preferWeeks = r.preferWeeks.map(x =>
+          typeof x === 'string' ? { week: x, services: [] } : x
+        );
+      }
+    });
+  }
   saveLocal();
 }
 
 /* ---------- Week + block helpers ---------- */
+// Academic year convention: Block 1 begins on the Monday of the week
+// containing July 1. Blocks are 4 weeks long, so there are 13 per academic year.
+// Example: AY 2026-27 starts Mon 2026-06-29 (July 1 2026 is a Wednesday).
+//   June 29 → Block 1,  Jan 11 2027 → Block 8,  June 2027 → Block 13.
+function mondayOfWeekContaining(d) {
+  const dow = d.getUTCDay(); // 0=Sun ... 6=Sat
+  const offset = dow === 0 ? -6 : -(dow - 1);
+  const r = new Date(d);
+  r.setUTCDate(d.getUTCDate() + offset);
+  return r;
+}
+function academicYearAnchor(mondayDate) {
+  // Return the Monday-of-week-containing-July-1 for the academic year that mondayDate belongs to.
+  const year = mondayDate.getUTCFullYear();
+  const anchorCurrent = mondayOfWeekContaining(new Date(Date.UTC(year, 6, 1)));
+  if (mondayDate.getTime() >= anchorCurrent.getTime()) return anchorCurrent;
+  return mondayOfWeekContaining(new Date(Date.UTC(year - 1, 6, 1)));
+}
+function blockFor(mondayDate) {
+  const anchor = academicYearAnchor(mondayDate);
+  const weeksSince = Math.floor((mondayDate.getTime() - anchor.getTime()) / (1000 * 60 * 60 * 24 * 7));
+  return Math.floor(weeksSince / 4) + 1;
+}
+
 function weeksInPeriod() {
   const start = parseISO(state.period.startDate);
   const arr = [];
@@ -619,7 +652,7 @@ function weeksInPeriod() {
       iso: fmtISO(mon),
       mon, sun: addDays(mon, 6),
       sat: addDays(mon, 5),
-      block: Math.floor(i/4) + 1,       // Block 1,2,3…
+      block: blockFor(mon),              // Academic-year block (July = 1 … June = 13)
       index: i,
     });
   }
@@ -771,8 +804,15 @@ function requestsForWeek(w) {
     if (softMatch) {
       items.push({init, kind:'soft', text:`${init} prefers not (P${softMatch.priority})`});
     }
-    if (r.preferWeeks && r.preferWeeks.includes(w.iso)) {
-      items.push({init, kind:'prefer', text:`${init} wants this week`});
+    if (r.preferWeeks) {
+      const pw = r.preferWeeks.find(x => (typeof x === 'string' ? x : x.week) === w.iso);
+      if (pw) {
+        const svcs = (typeof pw === 'object' && pw.services) ? pw.services : [];
+        const label = svcs.length
+          ? `${init} wants ${svcs.map(s => s.charAt(0).toUpperCase()+s.slice(1)).join('/')}`
+          : `${init} wants this week`;
+        items.push({init, kind:'prefer', text: label});
+      }
     }
   });
   // Sort: hard first, then soft, then prefer; within each, alphabetical by init
@@ -804,12 +844,15 @@ function forcedConflicts(weeks) {
 
 function crossWeekFlags(weeks) {
   // Return map of iso -> extra soft/hard notes based on adjacent weeks.
-  // Ideal rule: 3 weeks off inpatient (Gold/Bronze/OB — week OR weekend) between
-  // any two inpatient assignments. So if someone is on inpatient in week N, the
-  // earliest they should return is week N+4.
-  // Severity:
-  //   back = 1 or 2 (0-1 weeks in between) → HARD violation
-  //   back = 3      (2 weeks in between)   → SOFT flag (acceptable fallback)
+  // Ideal rule: at least 2 weeks off inpatient between any two inpatient
+  // assignments (every-3-weeks cadence). So if someone is on inpatient in week N,
+  // the earliest they should return is week N+3.
+  // Exception: GJE (Eichman) works every 2 weeks (1 week off between) — no flag for him.
+  // Severity for everyone else:
+  //   back = 1  (0 weeks between)       → HARD violation (back-to-back)
+  //   back = 2  (1 week between)        → SOFT flag (acceptable fallback)
+  //   back >= 3 (2+ weeks between)      → no flag (ideal)
+  const EVERY_2_WEEKS_OK = new Set(['GJE']);
   const peopleAt = w => {
     const e = state.schedule[w.iso];
     if (!e) return [];
@@ -823,25 +866,25 @@ function crossWeekFlags(weeks) {
     const thisPeople = new Set(peopleAt(w));
     if (!thisPeople.size) continue;
 
-    for (let back = 1; back <= 3; back++) {
+    for (let back = 1; back <= 2; back++) {
       const prev = weeks[i-back];
       if (!prev) continue;
       const prevPeople = new Set(peopleAt(prev));
       for (const p of prevPeople) {
         if (!thisPeople.has(p)) continue;
-        const gapWeeks = back - 1; // weeks completely off in between
+        if (EVERY_2_WEEKS_OK.has(p)) continue; // GJE exception — no flag
+        const gapWeeks = back - 1;
         const bucket = (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]});
-        if (back <= 2) {
-          const gapNote = back === 1 ? 'last week' : '2 weeks ago';
-          bucket.hard.push(`${p}: needs 3 weeks off inpatient (was on ${gapNote}, only ${gapWeeks} week${gapWeeks===1?'':'s'} between)`);
+        if (back === 1) {
+          bucket.hard.push(`${p}: back-to-back inpatient (needs 2 weeks off, 0 between)`);
         } else {
-          bucket.soft.push(`${p}: only 2 weeks between inpatient assignments (3 preferred)`);
+          bucket.soft.push(`${p}: only 1 week between inpatient assignments (2 preferred)`);
         }
       }
     }
     // Post-Gold: additional emphasis if last week's Gold is on inpatient this week
     const prevEntry = i > 0 ? state.schedule[weeks[i-1].iso] : null;
-    if (prevEntry && prevEntry.week.gold && thisPeople.has(prevEntry.week.gold)) {
+    if (prevEntry && prevEntry.week.gold && thisPeople.has(prevEntry.week.gold) && !EVERY_2_WEEKS_OK.has(prevEntry.week.gold)) {
       (extras[w.iso] = extras[w.iso] || {hard:[], soft:[]}).hard.push(
         `${prevEntry.week.gold}: post-Gold back-to-back (strongly discouraged)`
       );
@@ -1102,15 +1145,22 @@ function renderRequestPanel(init) {
 
       <div class="panel" style="background:#f2faf4">
         <h3 style="margin-top:0; color:var(--ok)">Prefer-to-work weeks</h3>
-        <div class="toolbar">
-          <select id="pw-sel" style="flex:1 1 auto; padding:5px"><option value="">— pick a week —</option>${weekOptions}</select>
+        <div class="toolbar" style="align-items:center">
+          <select id="pw-sel" style="flex:2 1 auto; padding:5px"><option value="">— pick a week —</option>${weekOptions}</select>
+          <label class="small" style="display:inline-flex;align-items:center;gap:3px"><input type="checkbox" class="pw-svc" value="gold"> Gold</label>
+          <label class="small" style="display:inline-flex;align-items:center;gap:3px"><input type="checkbox" class="pw-svc" value="bronze"> Bronze</label>
+          <label class="small" style="display:inline-flex;align-items:center;gap:3px"><input type="checkbox" class="pw-svc" value="ob"> OB</label>
           <button class="btn small" id="pw-add">Add</button>
         </div>
+        <p class="small" style="margin:4px 0 8px 0; color:#555">Leave all boxes unchecked for "any service." Checking boxes limits the preference to those services only.</p>
         <ul class="req-list">
-          ${r.preferWeeks.map(iso => {
+          ${r.preferWeeks.map(entry => {
+            const iso = entry.week;
+            const svcs = entry.services || [];
             const w = weeks.find(x=>x.iso===iso);
             const label = w ? `Week of ${fmtLong(w.mon)}` : iso;
-            return `<li class="prefer">${label} <button data-remove="pw" data-val="${iso}">×</button></li>`;
+            const svcLabel = svcs.length ? ` • ${svcs.map(s => s.charAt(0).toUpperCase()+s.slice(1)).join('/')}` : ' • any';
+            return `<li class="prefer">${label}${svcLabel} <button data-remove="pw" data-val="${iso}">×</button></li>`;
           }).join('') || '<li class="small">None</li>'}
         </ul>
       </div>
@@ -1127,7 +1177,6 @@ function renderRequestPanel(init) {
       if (existing) existing.priority = pri;
       else r.softAvoidWeeks.push({ week:v, priority:pri });
     }],
-    ['pw-add','pw-sel', v => { if (v && !r.preferWeeks.includes(v)) r.preferWeeks.push(v); }],
   ];
   addHandlers.forEach(([btn, sel, fn]) => {
     $('#'+btn).addEventListener('click', () => {
@@ -1136,13 +1185,32 @@ function renderRequestPanel(init) {
       renderRequestPanel(init);
     });
   });
+  // Prefer-to-work: has its own handler because it reads the service checkboxes
+  $('#pw-add').addEventListener('click', () => {
+    const v = $('#pw-sel').value;
+    if (!v) return;
+    const svcs = Array.from(panel.querySelectorAll('.pw-svc:checked')).map(c => c.value);
+    const existing = r.preferWeeks.find(x => (typeof x === 'string' ? x : x.week) === v);
+    if (existing) {
+      // Replace services on existing entry (idempotent re-add)
+      if (typeof existing === 'string') {
+        r.preferWeeks = r.preferWeeks.map(x => (x === v ? { week: v, services: svcs } : x));
+      } else {
+        existing.services = svcs;
+      }
+    } else {
+      r.preferWeeks.push({ week: v, services: svcs });
+    }
+    saveLocal();
+    renderRequestPanel(init);
+  });
   panel.querySelectorAll('[data-remove]').forEach(b => {
     b.addEventListener('click', () => {
       const kind = b.dataset.remove, val = b.dataset.val;
       if (kind==='hbw') r.hardBlockWeeks = r.hardBlockWeeks.filter(x=>x!==val);
       if (kind==='hbwe') r.hardBlockWeekends = r.hardBlockWeekends.filter(x=>x!==val);
       if (kind==='saw') r.softAvoidWeeks = r.softAvoidWeeks.filter(x=>x.week!==val);
-      if (kind==='pw') r.preferWeeks = r.preferWeeks.filter(x=>x!==val);
+      if (kind==='pw') r.preferWeeks = r.preferWeeks.filter(x => (typeof x === 'string' ? x : x.week) !== val);
       saveLocal();
       renderRequestPanel(init);
     });
@@ -1339,9 +1407,9 @@ function autoFillSchedule(options = {}) {
 
   let assigned = 0, skipped = 0;
 
-  function tryFill(allowOverGoal, overflowMode, svcFilter, minGap = 3) {
+  function tryFill(allowOverGoal, overflowMode, svcFilter, minGap = 2) {
     // svcFilter: optional — restrict filling to these services only (e.g., ['ob'])
-    // minGap: 3 (ideal) | 2 (relaxed) | 0 (no gap restriction, last-resort)
+    // minGap: 2 (ideal) | 1 (relaxed, no back-to-back) | 0 (no gap restriction, last-resort)
     for (let wi = 0; wi < weeks.length; wi++) {
       const w = weeks[wi];
       const entry = state.schedule[w.iso];
@@ -1379,14 +1447,14 @@ function autoFillSchedule(options = {}) {
     }
   }
 
-  // Pass 1: strict (under goal, ideal 3-week gap)
-  tryFill(false, undefined, undefined, 3);
-  // Pass 2: strict + relaxed 2-week gap (still under goal)
+  // Pass 1: strict (under goal, ideal 2-week gap / 1 for GJE)
   tryFill(false, undefined, undefined, 2);
-  // Pass 3: OB overflow — opOBPref only, 2-week gap
-  tryFill(true, 'opOBOnly', ['ob'], 2);
-  // Pass 4: allow over goal, 2-week gap
-  tryFill(true, 'any', undefined, 2);
+  // Pass 2: strict + relaxed (under goal, only prevent back-to-back; GJE no restriction)
+  tryFill(false, undefined, undefined, 1);
+  // Pass 3: OB overflow — opOBPref only, no back-to-back
+  tryFill(true, 'opOBOnly', ['ob'], 1);
+  // Pass 4: allow over goal, no back-to-back
+  tryFill(true, 'any', undefined, 1);
   // Pass 5: last resort — no gap restriction. Fills anything still empty.
   // Violations will show as red flags on the schedule so you can see where.
   tryFill(true, 'any', undefined, 0);
@@ -1406,12 +1474,13 @@ function autoFillSchedule(options = {}) {
   return { assigned, skipped };
 }
 
-function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode, minGap = 3) {
+function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHits, allowOverGoal, overflowMode, minGap = 2) {
   // overflowMode (optional):
   //   undefined/'any' — default; anyone may go over goal when allowOverGoal is true
   //   'opOBOnly'       — only faculty with opOBPref=true may be picked over goal (used for OB overflow pass)
   // minGap: how many weeks off before this person can be picked again for inpatient.
-  //   3 = ideal, 2 = relaxed fallback, 0 = no restriction (last-resort pass)
+  //   2 = ideal (every-3-weeks cadence), 1 = fallback (no back-to-back), 0 = no restriction.
+  //   GJE is exempt (effective gap = minGap - 1).
   const eligible = state.faculty.filter(f => f.services[svc]);
   const weekIso = w.iso;
   const satIso = fmtISO(w.sat);
@@ -1455,15 +1524,18 @@ function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHit
       }
     }
 
-    // Gap rule: prefer 3 weeks off between inpatient assignments (week OR weekend).
+    // Gap rule: prefer 2 weeks off between inpatient assignments (week OR weekend).
+    // GJE is exempt — he routinely works every 2 weeks (1 week off between), so
+    // his effective gap is minGap - 1 (floor 0).
     // `minGap` controls how strict this pass is:
-    //   3 → ideal (skip anyone on inpatient in past 3 weeks)
-    //   2 → relaxed fallback (skip anyone on inpatient in past 2 weeks)
+    //   2 → ideal (skip anyone on inpatient in past 2 weeks; GJE skips past 1)
+    //   1 → relaxed fallback (skip only back-to-back; GJE no restriction)
     //   0 → no gap restriction (last-resort fill; will flag on the schedule)
     let btbPenalty = 0;
-    if (minGap > 0) {
+    const effMinGap = (f.initials === 'GJE') ? Math.max(0, minGap - 1) : minGap;
+    if (effMinGap > 0) {
       let tooRecent = false;
-      for (let back = 1; back <= minGap; back++) {
+      for (let back = 1; back <= effMinGap; back++) {
         const prev = weeks[wi - back];
         if (!prev) continue;
         const prevEntry = state.schedule[prev.iso];
@@ -1515,9 +1587,14 @@ function pickBestFaculty(svc, w, wi, kind, entry, weeks, lastWeekIdx, holidayHit
       if (m) softPenalty = 40 * m.priority;
     }
 
-    // Prefer-to-work bonus
+    // Prefer-to-work bonus — honors optional service filter on each entry.
+    // Entry shape: {week, services:[]} or legacy string. Empty services = any.
     let preferBonus = 0;
-    if (r.preferWeeks.includes(weekIso)) preferBonus = 80;
+    const pwEntry = r.preferWeeks.find(x => (typeof x === 'string' ? x : x.week) === weekIso);
+    if (pwEntry) {
+      const svcs = (typeof pwEntry === 'object' && pwEntry.services) ? pwEntry.services : [];
+      if (svcs.length === 0 || svcs.includes(svc)) preferBonus = 80;
+    }
 
     // Cadence — reward if it's been a while since their last assignment
     const lastWi = lastWeekIdx[f.initials];
@@ -2238,7 +2315,9 @@ function renderPTOOverview() {
       const hardW = (r.hardBlockWeeks || []).slice().sort();
       const hardWE = (r.hardBlockWeekends || []).slice().sort();
       const softW = (r.softAvoidWeeks || []).slice().sort((a,b)=>a.week.localeCompare(b.week));
-      const prefW = (r.preferWeeks || []).slice().sort();
+      // Normalize prefer entries: legacy strings or {week, services}
+      const prefW = (r.preferWeeks || []).map(x => typeof x === 'string' ? { week: x, services: [] } : x)
+        .slice().sort((a,b) => a.week.localeCompare(b.week));
       const total = hardW.length + hardWE.length + softW.length + prefW.length;
       const fmtWk = iso => {
         const w = weeks.find(x => x.iso === iso);
@@ -2255,7 +2334,12 @@ function renderPTOOverview() {
         ...hardW.map(iso => `<span class="pto-chip hard">off week of ${fmtWk(iso)}</span>`),
         ...hardWE.map(iso => `<span class="pto-chip hard">off ${fmtWE(iso)}</span>`),
         ...softW.map(x => `<span class="pto-chip soft">avoid ${fmtWk(x.week)} (P${x.priority})</span>`),
-        ...prefW.map(iso => `<span class="pto-chip prefer">wants ${fmtWk(iso)}</span>`),
+        ...prefW.map(x => {
+          const svcs = x.services && x.services.length
+            ? ' • ' + x.services.map(s => s.charAt(0).toUpperCase()+s.slice(1)).join('/')
+            : '';
+          return `<span class="pto-chip prefer">wants ${fmtWk(x.week)}${svcs}</span>`;
+        }),
       ].join('');
       return `<div class="pto-fac-block">
         <span class="pto-fac-name">${escapeHtml(f.initials)}</span> ${chips}
