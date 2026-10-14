@@ -248,6 +248,12 @@
 
 <main>
 
+<div id="stale-period-banner" style="display:none; background:#fff8e1; border:1px solid #f0d98a; padding:12px 16px; border-radius:4px; margin:10px 20px; align-items:center; gap:12px; justify-content:space-between;">
+  <span style="flex:1 1 auto"><b>Heads up:</b> your schedule is set to <span id="stale-current-range"></span>, but the current period is <span id="stale-new-range"></span>. Jump to the current period?</span>
+  <button class="btn" id="btn-stale-jump">Jump to current period</button>
+  <button class="btn ghost small" id="btn-stale-dismiss">Dismiss</button>
+</div>
+
 <!-- ================== FACULTY TAB ================== -->
 <section id="tab-faculty" class="tab active">
   <h2>Faculty roster &amp; goals</h2>
@@ -351,6 +357,7 @@
 <section id="tab-schedule" class="tab">
   <h2>Schedule — <span id="period-label"></span></h2>
   <div class="toolbar">
+    <button class="btn" id="btn-jump-current" title="Set the schedule to the current default period">Jump to current period</button>
     <label>Start Monday: <input type="date" id="period-start"></label>
     <label>Weeks: <input type="number" id="period-weeks" min="4" max="52" style="width:70px"></label>
     <button class="btn ghost" id="btn-regen-weeks">Regenerate weeks</button>
@@ -476,6 +483,18 @@
   </div>
 
   <div class="panel">
+    <h3 style="margin-top:0">Import block dates from New Innovations</h3>
+    <p class="small">Each academic year, copy the block schedule row from NI (the one that reads <code>Block 1 (06/29/2026 - 07/26/2026)   Block 2 (07/27/2026 - 08/23/2026)   …</code>) and paste it below, then click Parse &amp; apply. The app will use those exact dates as the authoritative block calendar and update the schedule start.</p>
+    <textarea id="ni-block-input" placeholder="Paste the full row from New Innovations here, including all 13 blocks..." style="width:100%; min-height:100px; padding:8px; font-family:monospace; font-size:12px; border:1px solid #ccc; border-radius:4px;"></textarea>
+    <div class="toolbar" style="margin-top:8px">
+      <button class="btn" id="btn-ni-parse">Parse &amp; apply</button>
+      <button class="btn ghost" id="btn-ni-clear">Clear saved blocks</button>
+      <span class="small" id="ni-blocks-status" style="color:#555"></span>
+    </div>
+    <div id="ni-blocks-preview" style="margin-top:8px"></div>
+  </div>
+
+  <div class="panel">
     <h3 style="margin-top:0">Reset</h3>
     <div class="toolbar">
       <button class="btn danger" id="btn-reset-all">Reset everything to default seed</button>
@@ -547,6 +566,7 @@ let state = {
   faculty: [],
   requests: {},   // keyed by initials -> {hardBlockWeeks, hardBlockWeekends, softAvoidWeeks, preferWeeks}
   schedule: {},   // keyed by week start ISO -> {week:{gold,bronze,ob}, weekend:{gold,bronze,ob}}
+  importedBlocks: null, // optional authoritative block list from NI import — see parseNIBlockText()
 };
 
 const LS_KEY = 'fms-scheduler-state-v1';
@@ -638,9 +658,40 @@ function academicYearAnchor(mondayDate) {
   return mondayOfWeekContaining(new Date(Date.UTC(year - 1, 6, 1)));
 }
 function blockFor(mondayDate) {
+  // Prefer the authoritative NI import if the date falls within its range.
+  if (state.importedBlocks && state.importedBlocks.length) {
+    const iso = fmtISO(mondayDate);
+    const hit = state.importedBlocks.find(b => iso >= b.startIso && iso <= b.endIso);
+    if (hit) return hit.num;
+  }
   const anchor = academicYearAnchor(mondayDate);
   const weeksSince = Math.floor((mondayDate.getTime() - anchor.getTime()) / (1000 * 60 * 60 * 24 * 7));
   return Math.floor(weeksSince / 4) + 1;
+}
+
+/* Parse the block schedule as pasted from New Innovations.
+   Expected pattern anywhere in the text (whitespace-tolerant):
+     Block 1 (06/29/2026 - 07/26/2026)   Block 2 (07/27/2026 - 08/23/2026) ...
+   Returns an array of {num, startIso, endIso} sorted by num. */
+function parseNIBlockText(text) {
+  if (!text || typeof text !== 'string') return [];
+  const re = /Block\s+(\d+)\s*\(\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*\)/g;
+  const out = [];
+  const seen = new Set();
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const num = parseInt(m[1], 10);
+    if (seen.has(num)) continue;
+    seen.add(num);
+    const toIso = (mm, dd, yy) => `${yy}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    out.push({
+      num,
+      startIso: toIso(m[2], m[3], m[4]),
+      endIso:   toIso(m[5], m[6], m[7]),
+    });
+  }
+  out.sort((a, b) => a.num - b.num);
+  return out;
 }
 
 function weeksInPeriod() {
@@ -1655,6 +1706,23 @@ $('#period-start').addEventListener('change', e => {
   state.period.startDate = e.target.value;
   saveLocal();
 });
+
+$('#btn-jump-current').addEventListener('click', () => {
+  if (!confirm(`Jump to the current default period (start ${DEFAULT_PERIOD.startDate}, ${DEFAULT_PERIOD.weeks} weeks)?\n\nThis changes the start date and week count. Any assignments on dates outside the new period will be hidden but not deleted.`)) return;
+  state.period.startDate = DEFAULT_PERIOD.startDate;
+  state.period.weeks = DEFAULT_PERIOD.weeks;
+  // Rebuild schedule entries so new weeks exist and old weeks outside range drop from view
+  const newWeeks = weeksInPeriod().map(w => w.iso);
+  const newSched = {};
+  newWeeks.forEach(iso => {
+    newSched[iso] = state.schedule[iso] || { week:{gold:'',bronze:'',ob:''}, weekend:{gold:'',bronze:'',ob:''} };
+  });
+  state.schedule = newSched;
+  saveLocal();
+  renderSchedule(); renderProgress(); renderRequestsTab(); renderPTOOverview();
+  const banner = $('#stale-period-banner');
+  if (banner) banner.style.display = 'none';
+});
 $('#period-weeks').addEventListener('change', e => {
   const v = parseInt(e.target.value, 10);
   if (v >= 1 && v <= 52) { state.period.weeks = v; saveLocal(); }
@@ -2368,6 +2436,29 @@ function renderPTOOverview() {
   }
 }
 
+function renderNIBlocksPreview() {
+  const status = $('#ni-blocks-status');
+  const preview = $('#ni-blocks-preview');
+  if (!status || !preview) return;
+  const blocks = state.importedBlocks || [];
+  if (!blocks.length) {
+    status.textContent = 'No block calendar imported yet — using computed defaults.';
+    preview.innerHTML = '';
+    return;
+  }
+  const first = blocks[0], last = blocks[blocks.length - 1];
+  status.innerHTML = `<b>${blocks.length} blocks loaded</b> (${first.startIso} → ${last.endIso}).`;
+  preview.innerHTML = `
+    <details>
+      <summary class="small" style="cursor:pointer; color:#555">Show imported block dates</summary>
+      <table style="margin-top:6px; font-size:12px">
+        <thead><tr><th>Block</th><th>Start</th><th>End</th></tr></thead>
+        <tbody>${blocks.map(b => `<tr><td class="center">${b.num}</td><td>${b.startIso}</td><td>${b.endIso}</td></tr>`).join('')}</tbody>
+      </table>
+    </details>
+  `;
+}
+
 function exportPTOCsv() {
   const weeks = weeksInPeriod();
   const rows = [['Block','Week of','Faculty','Kind','Detail']];
@@ -2405,11 +2496,77 @@ function boot() {
   // PTO overview buttons
   $('#btn-pto-print').addEventListener('click', () => window.print());
   $('#btn-pto-export-csv').addEventListener('click', exportPTOCsv);
+  // Stale-period banner handlers
+  $('#btn-stale-jump').addEventListener('click', () => $('#btn-jump-current').click());
+  $('#btn-stale-dismiss').addEventListener('click', () => {
+    const b = $('#stale-period-banner'); if (b) b.style.display = 'none';
+    try { sessionStorage.setItem('stale-period-dismissed', '1'); } catch(e) {}
+  });
+  // NI block import handlers
+  $('#btn-ni-parse').addEventListener('click', () => {
+    const txt = ($('#ni-block-input').value || '').trim();
+    if (!txt) { toast('Paste the block schedule from NI first.', 'error'); return; }
+    const blocks = parseNIBlockText(txt);
+    if (!blocks.length) { toast('No blocks recognized. Expecting lines like "Block 1 (06/29/2026 - 07/26/2026)".', 'error'); return; }
+    // Validate: consecutive numbering starting at 1, chronological
+    const bad = blocks.find((b, i) => b.num !== i + 1 || (i > 0 && b.startIso <= blocks[i-1].endIso));
+    if (bad) { toast('Blocks are out of order or missing numbers. Please re-paste the full row.', 'error'); return; }
+    const first = blocks[0];
+    const last = blocks[blocks.length - 1];
+    const weeks = Math.round(
+      (parseISO(last.endIso).getTime() - parseISO(first.startIso).getTime()) / (1000*60*60*24*7)
+    ) + 1;
+    if (!confirm(`Found ${blocks.length} blocks from ${first.startIso} to ${last.endIso} (${weeks} weeks).\n\nApply these as the authoritative block calendar? This will also set the schedule start to Block 1.`)) return;
+    state.importedBlocks = blocks;
+    state.period.startDate = first.startIso;
+    state.period.weeks = weeks;
+    // Rebuild schedule entries so new weeks exist
+    const newWeeks = weeksInPeriod().map(w => w.iso);
+    const newSched = {};
+    newWeeks.forEach(iso => {
+      newSched[iso] = state.schedule[iso] || { week:{gold:'',bronze:'',ob:''}, weekend:{gold:'',bronze:'',ob:''} };
+    });
+    state.schedule = newSched;
+    saveLocal();
+    renderSchedule(); renderProgress(); renderRequestsTab(); renderPTOOverview();
+    renderNIBlocksPreview();
+    toast(`Imported ${blocks.length} blocks.`, 'ok');
+  });
+  $('#btn-ni-clear').addEventListener('click', () => {
+    if (!state.importedBlocks || !state.importedBlocks.length) { toast('No imported blocks to clear.'); return; }
+    if (!confirm('Clear the imported block calendar? The app will fall back to computed block numbering.')) return;
+    state.importedBlocks = null;
+    saveLocal();
+    renderSchedule(); renderProgress();
+    renderNIBlocksPreview();
+    toast('Imported blocks cleared.', 'ok');
+  });
+  renderNIBlocksPreview();
   activateTab('faculty');
   saveLocal();
   initSupabase();
   // Password gate: show only if not already unlocked this session
   if (!isUnlocked()) showPasswordGate();
+  // Show banner if saved period doesn't match the current default and user hasn't dismissed it this session
+  try {
+    const dismissed = sessionStorage.getItem('stale-period-dismissed') === '1';
+    if (!dismissed && state.period.startDate !== DEFAULT_PERIOD.startDate) {
+      const fmt = iso => {
+        const d = parseISO(iso);
+        return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+      };
+      const curStart = state.period.startDate;
+      const curEnd   = fmtISO(addDays(parseISO(curStart), state.period.weeks * 7 - 1));
+      const newStart = DEFAULT_PERIOD.startDate;
+      const newEnd   = fmtISO(addDays(parseISO(newStart), DEFAULT_PERIOD.weeks * 7 - 1));
+      const curRange = $('#stale-current-range');
+      const newRange = $('#stale-new-range');
+      if (curRange) curRange.textContent = `${fmt(curStart)} – ${fmt(curEnd)}`;
+      if (newRange) newRange.textContent = `${fmt(newStart)} – ${fmt(newEnd)}`;
+      const b = $('#stale-period-banner');
+      if (b) b.style.display = 'flex';
+    }
+  } catch (e) { console.warn('stale-period check failed', e); }
 }
 boot();
 </script>
